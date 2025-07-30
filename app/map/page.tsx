@@ -55,8 +55,6 @@ import { useFirebase } from "@/hooks/useFirebase"
 
 // Force dynamic rendering to prevent SSR issues
 export const dynamic = 'force-dynamic'
-export const runtime = 'nodejs'
-export const revalidate = 0
 
 // Dynamic import for Map component
 const DynamicMapComponent = dynamicImport(() => import("@/components/Map"), {
