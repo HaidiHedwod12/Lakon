@@ -59,7 +59,9 @@ export default function LoginPage() {
       }, 3000)
     } catch (error) {
       // Fallback to window.location if router fails
-      window.location.href = "/"
+      if (typeof window !== 'undefined') {
+        window.location.href = "/"
+      }
     }
   }
 

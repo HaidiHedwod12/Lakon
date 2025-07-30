@@ -131,7 +131,9 @@ export default function UserNavbar() {
                         setIsMobileMenuOpen(false)
                         // Use router for navigation
                         setTimeout(() => {
-                          window.location.href = item.href
+                          if (typeof window !== 'undefined') {
+                            window.location.href = item.href
+                          }
                         }, 150)
                       }}
                     >

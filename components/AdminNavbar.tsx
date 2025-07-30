@@ -65,8 +65,10 @@ export default function AdminNavbar({ onLogout }: AdminNavbarProps) {
       onLogout()
     } else {
       // Default logout behavior
-      localStorage.removeItem("isAdmin")
-      window.location.href = "/login"
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem("isAdmin")
+        window.location.href = "/login"
+      }
     }
   }
 
