@@ -13,7 +13,20 @@ import AuthProvider from "@/components/AuthProvider"
 import { Send, CheckCircle, Clock, Upload, X, MapPin, User, Calendar } from "lucide-react"
 import Link from "next/link"
 import { motion } from "framer-motion"
-import Map from "@/components/Map"
+import dynamicImport from "next/dynamic"
+
+// Dynamic import for Map component
+const MapComponent = dynamicImport(() => import("@/components/Map"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full bg-gray-200 animate-pulse flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+        <p className="text-gray-600">Loading map...</p>
+      </div>
+    </div>
+  )
+})
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/toaster"
 
@@ -116,20 +129,24 @@ export default function ReportPage() {
 
   // Copy Google Maps URL to clipboard
   const copyGoogleMapsUrl = (lat: number, lng: number) => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && typeof navigator !== 'undefined') {
       const url = `https://maps.google.com/?q=${lat},${lng}`
-      navigator.clipboard.writeText(url).then(() => {
-        toast.success("URL Google Maps telah disalin ke clipboard!")
-      }).catch(() => {
-        // Fallback for older browsers
-        const textArea = document.createElement("textarea")
-        textArea.value = url
-        document.body.appendChild(textArea)
-        textArea.select()
-        document.execCommand("copy")
-        document.body.removeChild(textArea)
-        toast.success("URL Google Maps telah disalin ke clipboard!")
-      })
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(() => {
+          toast.success("URL Google Maps telah disalin ke clipboard!")
+        }).catch(() => {
+          // Fallback for older browsers
+          if (typeof document !== 'undefined') {
+            const textArea = document.createElement("textarea")
+            textArea.value = url
+            document.body.appendChild(textArea)
+            textArea.select()
+            document.execCommand("copy")
+            document.body.removeChild(textArea)
+            toast.success("URL Google Maps telah disalin ke clipboard!")
+          }
+        })
+      }
     }
   }
 
@@ -567,7 +584,7 @@ export default function ReportPage() {
                     {/* Interactive Map for Location Selection */}
                     <div className="mt-3 h-64 bg-slate-700 rounded-lg relative overflow-hidden z-10">
                       <div style={{ width: '100%', height: '256px', position: 'relative' }}>
-                        <Map 
+                        <MapComponent 
                           selectedLayers={selectedLayers} 
                           onLocationSelect={handleLocationSelect}
                           isCompact={true}
