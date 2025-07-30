@@ -21,7 +21,7 @@ import { overallStats, getRecentReports } from "@/lib/dummy-data"
 
 // Force dynamic rendering to prevent SSR issues
 export const dynamic = 'force-dynamic'
-export const runtime = 'edge'
+export const runtime = 'nodejs'
 export const revalidate = 0
 
 export default function ReportPage() {

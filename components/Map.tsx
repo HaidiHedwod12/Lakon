@@ -1147,8 +1147,17 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
    )
 }
 
-// Export as client-only component
-export default dynamic(() => Promise.resolve(MapComponent), {
+// Export as client-only component with proper error handling
+const Map = dynamic(() => Promise.resolve(MapComponent), {
   ssr: false,
-  loading: () => <div className="w-full h-full bg-gray-200 animate-pulse flex items-center justify-center">Loading map...</div>
+  loading: () => (
+    <div className="w-full h-full bg-gray-200 animate-pulse flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+        <p className="text-gray-600">Loading map...</p>
+      </div>
+    </div>
+  )
 })
+
+export default Map

@@ -49,15 +49,27 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { motion } from "framer-motion"
-import MapComponent from "@/components/Map"
-
+import dynamicImport from "next/dynamic"
 import { accidentData, infrastructureData, facilityData, communityReports, overallStats } from "@/lib/dummy-data"
 import { useFirebase } from "@/hooks/useFirebase"
 
 // Force dynamic rendering to prevent SSR issues
 export const dynamic = 'force-dynamic'
-export const runtime = 'edge'
+export const runtime = 'nodejs'
 export const revalidate = 0
+
+// Dynamic import for Map component
+const DynamicMapComponent = dynamicImport(() => import("@/components/Map"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full bg-gray-200 animate-pulse flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+        <p className="text-gray-600">Loading map...</p>
+      </div>
+    </div>
+  )
+})
 
 // Interface for search results
 interface SearchResult {
@@ -924,7 +936,7 @@ export default function MapPage() {
 
         {/* Map Area */}
         <div className="flex-1 relative">
-          <MapComponent 
+          <DynamicMapComponent 
             selectedLayers={selectedLayers}
             filteredAccidents={accidents}
             onLocationSelect={(lat: number, lng: number) => {
