@@ -67,19 +67,21 @@ export default function ReportPage() {
 
   // Check for coordinates from localStorage (from map context menu)
   React.useEffect(() => {
-    const storedLocation = localStorage.getItem('reportLocation')
-    if (storedLocation) {
-      try {
-        const location = JSON.parse(storedLocation)
-        setSelectedLocation(location)
-        setMapCoordinates(location)
-        // Clear localStorage after reading
-        localStorage.removeItem('reportLocation')
-        // Show success message
-        toast.success("Lokasi telah diisi otomatis dari peta! Peta akan menuju ke lokasi tersebut.")
-      } catch (error) {
-        console.error('Error parsing stored location:', error)
-        localStorage.removeItem('reportLocation')
+    if (typeof window !== 'undefined') {
+      const storedLocation = localStorage.getItem('reportLocation')
+      if (storedLocation) {
+        try {
+          const location = JSON.parse(storedLocation)
+          setSelectedLocation(location)
+          setMapCoordinates(location)
+          // Clear localStorage after reading
+          localStorage.removeItem('reportLocation')
+          // Show success message
+          toast.success("Lokasi telah diisi otomatis dari peta! Peta akan menuju ke lokasi tersebut.")
+        } catch (error) {
+          console.error('Error parsing stored location:', error)
+          localStorage.removeItem('reportLocation')
+        }
       }
     }
   }, [])
@@ -111,19 +113,21 @@ export default function ReportPage() {
 
   // Copy Google Maps URL to clipboard
   const copyGoogleMapsUrl = (lat: number, lng: number) => {
-    const url = `https://maps.google.com/?q=${lat},${lng}`
-    navigator.clipboard.writeText(url).then(() => {
-      toast.success("URL Google Maps telah disalin ke clipboard!")
-    }).catch(() => {
-      // Fallback for older browsers
-      const textArea = document.createElement("textarea")
-      textArea.value = url
-      document.body.appendChild(textArea)
-      textArea.select()
-      document.execCommand("copy")
-      document.body.removeChild(textArea)
-      toast.success("URL Google Maps telah disalin ke clipboard!")
-    })
+    if (typeof window !== 'undefined') {
+      const url = `https://maps.google.com/?q=${lat},${lng}`
+      navigator.clipboard.writeText(url).then(() => {
+        toast.success("URL Google Maps telah disalin ke clipboard!")
+      }).catch(() => {
+        // Fallback for older browsers
+        const textArea = document.createElement("textarea")
+        textArea.value = url
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textArea)
+        toast.success("URL Google Maps telah disalin ke clipboard!")
+      })
+    }
   }
 
   const statsData = [

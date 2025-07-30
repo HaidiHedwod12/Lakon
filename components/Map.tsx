@@ -27,13 +27,15 @@ import { useFirebase } from "@/hooks/useFirebase"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/toaster"
 
-// Fix Leaflet default icon issue
-delete (L.Icon.Default.prototype as any)._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-})
+// Fix Leaflet default icon issue - only run on client side
+if (typeof window !== 'undefined') {
+  delete (L.Icon.Default.prototype as any)._getIconUrl
+  L.Icon.Default.mergeOptions({
+    iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+    iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+    shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+  })
+}
 
 interface MapProps {
   selectedLayers: Record<string, boolean>
@@ -218,6 +220,12 @@ export default function Map({ selectedLayers, onLocationSelect, isCompact = fals
     // Call onMapReady callback if provided
     if (onMapReady) {
       onMapReady(map)
+    }
+
+    // Store map instance globally for search functionality (only on client side)
+    if (typeof window !== 'undefined') {
+      (window as any).mapInstance = map
+      ;(window as any).L = L
     }
 
     // Add initial base map
@@ -655,47 +663,53 @@ export default function Map({ selectedLayers, onLocationSelect, isCompact = fals
 
   // Function to copy Google Maps URL
   const copyGoogleMapsUrl = (lat: number, lng: number) => {
-    const url = `https://www.google.com/maps?q=${lat},${lng}`
-    navigator.clipboard.writeText(url).then(() => {
-      toast.success("URL Google Maps telah disalin ke clipboard!")
-    }).catch(() => {
-      // Fallback for older browsers
-      const textArea = document.createElement("textarea")
-      textArea.value = url
-      document.body.appendChild(textArea)
-      textArea.select()
-      document.execCommand("copy")
-      document.body.removeChild(textArea)
-      toast.success("URL Google Maps telah disalin ke clipboard!")
-    })
+    if (typeof window !== 'undefined') {
+      const url = `https://www.google.com/maps?q=${lat},${lng}`
+      navigator.clipboard.writeText(url).then(() => {
+        toast.success("URL Google Maps telah disalin ke clipboard!")
+      }).catch(() => {
+        // Fallback for older browsers
+        const textArea = document.createElement("textarea")
+        textArea.value = url
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textArea)
+        toast.success("URL Google Maps telah disalin ke clipboard!")
+      })
+    }
     setContextMenu(null)
   }
 
   // Function to copy coordinates for Google Maps search
   const copyCoordinates = (lat: number, lng: number) => {
-    // Format coordinates for Google Maps search bar (decimal degrees)
-    const coords = `${lat}, ${lng}`
-    navigator.clipboard.writeText(coords).then(() => {
-      toast.success("Koordinat telah disalin ke clipboard!")
-    }).catch(() => {
-      // Fallback for older browsers
-      const textArea = document.createElement("textarea")
-      textArea.value = coords
-      document.body.appendChild(textArea)
-      textArea.select()
-      document.execCommand("copy")
-      document.body.removeChild(textArea)
-      toast.success("Koordinat telah disalin ke clipboard!")
-    })
+    if (typeof window !== 'undefined') {
+      // Format coordinates for Google Maps search bar (decimal degrees)
+      const coords = `${lat}, ${lng}`
+      navigator.clipboard.writeText(coords).then(() => {
+        toast.success("Koordinat telah disalin ke clipboard!")
+      }).catch(() => {
+        // Fallback for older browsers
+        const textArea = document.createElement("textarea")
+        textArea.value = coords
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textArea)
+        toast.success("Koordinat telah disalin ke clipboard!")
+      })
+    }
     setContextMenu(null)
   }
 
   // Function to report issue at selected location
   const reportIssue = (lat: number, lng: number) => {
     // Store coordinates in localStorage for report page
-    localStorage.setItem('reportLocation', JSON.stringify({ lat, lng }))
-    // Navigate to report page
-    window.location.href = '/report'
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('reportLocation', JSON.stringify({ lat, lng }))
+      // Navigate to report page
+      window.location.href = '/report'
+    }
     setContextMenu(null)
   }
 

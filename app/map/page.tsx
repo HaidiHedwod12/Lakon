@@ -297,29 +297,33 @@ export default function MapPage() {
     setShowSearchResults(false)
     
     // Navigate to location on map
-    const mapInstance = (window as any).mapInstance
-    if (mapInstance) {
-      mapInstance.setView([location.lat, location.lng], 16)
-      
-      // Add temporary marker using Leaflet
-      const L = (window as any).L
-      if (L) {
-        const tempMarker = L.marker([location.lat, location.lng], {
-          icon: L.divIcon({
-            className: "custom-div-icon",
-            html: `<div style="background-color: #3b82f6; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 8px rgba(0,0,0,0.5);"></div>`,
-            iconSize: [20, 20],
-            iconAnchor: [10, 10]
-          })
-        }).addTo(mapInstance)
+    if (typeof window !== 'undefined') {
+      const mapInstance = (window as any).mapInstance
+      if (mapInstance) {
+        mapInstance.setView([location.lat, location.lng], 16)
+        
+        // Add temporary marker using Leaflet
+        const L = (window as any).L
+        if (L) {
+          const tempMarker = L.marker([location.lat, location.lng], {
+            icon: L.divIcon({
+              className: "custom-div-icon",
+              html: `<div style="background-color: #3b82f6; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 8px rgba(0,0,0,0.5);"></div>`,
+              iconSize: [20, 20],
+              iconAnchor: [10, 10]
+            })
+          }).addTo(mapInstance)
 
-        // Remove marker after 5 seconds
-        setTimeout(() => {
-          const currentMapInstance = (window as any).mapInstance
-          if (currentMapInstance) {
-            currentMapInstance.removeLayer(tempMarker)
-          }
-        }, 5000)
+          // Remove marker after 5 seconds
+          setTimeout(() => {
+            if (typeof window !== 'undefined') {
+              const currentMapInstance = (window as any).mapInstance
+              if (currentMapInstance) {
+                currentMapInstance.removeLayer(tempMarker)
+              }
+            }
+          }, 5000)
+        }
       }
     }
   }
