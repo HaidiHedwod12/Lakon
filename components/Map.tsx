@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import dynamic from "next/dynamic"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import { Button } from "@/components/ui/button"
@@ -55,7 +56,8 @@ interface MapData {
   boundaries: any[]
 }
 
-export default function Map({ selectedLayers, onLocationSelect, isCompact = false, onMapReady, filteredAccidents }: MapProps) {
+// Export the Map component as client-only
+const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onMapReady, filteredAccidents }: MapProps) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<L.Map | null>(null)
   const layersRef = useRef<Record<string, L.LayerGroup>>({})
@@ -1144,3 +1146,9 @@ export default function Map({ selectedLayers, onLocationSelect, isCompact = fals
      </div>
    )
 }
+
+// Export as client-only component
+export default dynamic(() => Promise.resolve(MapComponent), {
+  ssr: false,
+  loading: () => <div className="w-full h-full bg-gray-200 animate-pulse flex items-center justify-center">Loading map...</div>
+})

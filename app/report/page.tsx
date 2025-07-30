@@ -21,6 +21,8 @@ import { overallStats, getRecentReports } from "@/lib/dummy-data"
 
 // Force dynamic rendering to prevent SSR issues
 export const dynamic = 'force-dynamic'
+export const runtime = 'edge'
+export const revalidate = 0
 
 export default function ReportPage() {
   const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number } | null>(null)

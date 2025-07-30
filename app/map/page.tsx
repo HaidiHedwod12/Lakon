@@ -56,6 +56,8 @@ import { useFirebase } from "@/hooks/useFirebase"
 
 // Force dynamic rendering to prevent SSR issues
 export const dynamic = 'force-dynamic'
+export const runtime = 'edge'
+export const revalidate = 0
 
 // Interface for search results
 interface SearchResult {
