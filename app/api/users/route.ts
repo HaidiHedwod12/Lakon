@@ -1,24 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { initializeApp, cert, getApps } from 'firebase-admin/app'
-import { getFirestore } from 'firebase-admin/firestore'
+import { initializeApp } from 'firebase/app'
+import { getFirestore, collection, getDocs, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 
-// Initialize Firebase Admin SDK
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    }),
-  })
+// Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyAKkhnOVJM-FCylGi-2yVFjc-2-Jj_KVTQ",
+  authDomain: "lakon-laporan-kecelakaan.firebaseapp.com",
+  projectId: "lakon-laporan-kecelakaan",
+  storageBucket: "lakon-laporan-kecelakaan.firebasestorage.app",
+  messagingSenderId: "487670358518",
+  appId: "1:487670358518:web:0a541911901d2e007f67d7"
 }
 
-const db = getFirestore()
+// Initialize Firebase
+const app = initializeApp(firebaseConfig)
+const db = getFirestore(app)
 
 export async function GET() {
   try {
-    const usersRef = db.collection('users')
-    const snapshot = await usersRef.get()
+    const usersRef = collection(db, 'users')
+    const snapshot = await getDocs(usersRef)
     
     const users = snapshot.docs.map(doc => ({
       id: doc.id,
@@ -42,8 +43,8 @@ export async function POST(req: NextRequest) {
     // Remove id field if present to avoid conflicts
     const { id, ...userData } = body
     
-    const usersRef = db.collection('users')
-    const docRef = await usersRef.add(userData)
+    const usersRef = collection(db, 'users')
+    const docRef = await addDoc(usersRef, userData)
     
     const newUser = {
       id: docRef.id,
@@ -53,6 +54,56 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, data: newUser })
   } catch (error: any) {
     console.error('Error adding user:', error)
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    )
+  }
+}
+
+export async function PUT(req: NextRequest) {
+  try {
+    const body = await req.json()
+    const { id, ...updateData } = body
+    
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'ID is required' },
+        { status: 400 }
+      )
+    }
+    
+    const userRef = doc(db, 'users', id)
+    await updateDoc(userRef, updateData)
+    
+    return NextResponse.json({ success: true })
+  } catch (error: any) {
+    console.error('Error updating user:', error)
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get('id')
+    
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'ID is required' },
+        { status: 400 }
+      )
+    }
+    
+    const userRef = doc(db, 'users', id)
+    await deleteDoc(userRef)
+    
+    return NextResponse.json({ success: true })
+  } catch (error: any) {
+    console.error('Error deleting user:', error)
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }
