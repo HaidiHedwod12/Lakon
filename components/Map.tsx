@@ -27,6 +27,8 @@ import {
 import { useFirebase } from "@/hooks/useFirebase"
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/toaster"
+import { SymbologySettings as SymbologySettingsComponent } from "@/components/ui/symbology-settings"
+import { FullscreenButton } from "@/components/ui/fullscreen-button"
 
 // Fix Leaflet default icon issue - only run on client side
 if (typeof window !== 'undefined') {
@@ -38,12 +40,29 @@ if (typeof window !== 'undefined') {
   })
 }
 
+interface SymbologySettings {
+  fillColor: string
+  borderColor: string
+  borderWidth: number
+  fillOpacity: number
+  borderOpacity: number
+  hollow: boolean
+}
+
 interface MapProps {
   selectedLayers: Record<string, boolean>
   onLocationSelect?: (lat: number, lng: number) => void
   isCompact?: boolean
   onMapReady?: (mapInstance: any) => void
   filteredAccidents?: any[]
+  showBoundaryKota?: boolean
+  boundaryKotaSettings?: SymbologySettings
+  showBoundaryKecamatan?: boolean
+  boundaryKecamatanSettings?: SymbologySettings
+  showBoundaryDesa?: boolean
+  boundaryDesaSettings?: SymbologySettings
+  onBoundarySettingsChange?: (type: 'kota' | 'kecamatan' | 'desa', settings: SymbologySettings) => void
+  onVisibilityChange?: (type: 'kota' | 'kecamatan' | 'desa', visible: boolean) => void
 }
 
 interface MapData {
@@ -57,7 +76,21 @@ interface MapData {
 }
 
 // Export the Map component as client-only
-const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onMapReady, filteredAccidents }: MapProps) => {
+const MapComponent = ({
+  selectedLayers,
+  onLocationSelect,
+  isCompact = false,
+  onMapReady,
+  filteredAccidents,
+  showBoundaryKota = false,
+  boundaryKotaSettings,
+  showBoundaryKecamatan = false,
+  boundaryKecamatanSettings,
+  showBoundaryDesa = false,
+  boundaryDesaSettings,
+  onBoundarySettingsChange,
+  onVisibilityChange,
+}: MapProps) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<L.Map | null>(null)
   const layersRef = useRef<Record<string, L.LayerGroup>>({})
@@ -77,6 +110,12 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
     lat: number
     lng: number
   } | null>(null)
+  const [boundaryKotaData, setBoundaryKotaData] = useState<any>(null)
+  const [boundaryKecamatanData, setBoundaryKecamatanData] = useState<any>(null)
+  const [boundaryDesaData, setBoundaryDesaData] = useState<any>(null)
+  const [boundaryKotaLayer, setBoundaryKotaLayer] = useState<L.LayerGroup | null>(null)
+  const [boundaryKecamatanLayer, setBoundaryKecamatanLayer] = useState<L.LayerGroup | null>(null)
+  const [boundaryDesaLayer, setBoundaryDesaLayer] = useState<L.LayerGroup | null>(null)
 
   // Firebase hooks for all data types
   const { data: firebaseAccidents } = useFirebase("accidents")
@@ -91,6 +130,90 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
     if (onLocationSelect) {
       onLocationSelect(0, 0) // Reset to default coordinates
     }
+  }
+
+  // Function to load boundary GeoJSON
+  const loadBoundaryData = async (url: string, setter: (data: any) => void) => {
+    try {
+      const response = await fetch(url)
+      const data = await response.json()
+      setter(data)
+    } catch (error) {
+      console.error('Error loading boundary data:', error)
+    }
+  }
+
+    // Function to render boundary layer with symbology settings
+  const renderBoundaryLayer = (data: any, settings: SymbologySettings, layerRef: L.LayerGroup | null, setLayerRef: (layer: L.LayerGroup | null) => void) => {
+    if (!mapInstanceRef.current || !data) return
+
+    // Remove existing layer if any
+    if (layerRef) {
+      mapInstanceRef.current.removeLayer(layerRef)
+    }
+
+    // Create new layer
+    const newLayer = L.layerGroup()
+    
+    data.features.forEach((feature: any) => {
+      if (feature.geometry.type === 'Polygon') {
+        // Handle Polygon geometry
+        const coordinates = feature.geometry.coordinates[0].map((coord: number[]) => [coord[1], coord[0]] as [number, number])
+        const polygon = L.polygon(coordinates, {
+          color: settings.borderColor,
+          weight: settings.borderWidth,
+          fillColor: settings.hollow ? 'transparent' : settings.fillColor,
+          fillOpacity: settings.hollow ? 0 : settings.fillOpacity,
+          opacity: settings.borderOpacity
+        })
+        
+        // Add popup with boundary information
+        const popupContent = `
+          <div class="p-2">
+            <h3 class="font-semibold text-blue-600 mb-2">${feature.properties.WADMKK || feature.properties.name || 'Wilayah'}</h3>
+            <p class="text-sm mb-1"><strong>Provinsi:</strong> ${feature.properties.WADMPR || feature.properties.province || 'Jawa Tengah'}</p>
+            <p class="text-sm mb-1"><strong>Luas:</strong> ${feature.properties.Shape_Area ? (feature.properties.Shape_Area * 100).toFixed(2) : 'N/A'} km²</p>
+            <p class="text-sm mb-1"><strong>Panjang Batas:</strong> ${feature.properties.Shape_Leng ? (feature.properties.Shape_Leng * 100).toFixed(2) : 'N/A'} km</p>
+            <p class="text-sm"><strong>Deskripsi:</strong> Batas administratif</p>
+          </div>
+        `
+        polygon.bindPopup(popupContent)
+        
+        newLayer.addLayer(polygon)
+      } else if (feature.geometry.type === 'MultiPolygon') {
+        // Handle MultiPolygon geometry
+        feature.geometry.coordinates.forEach((polygonCoords: number[][][]) => {
+          polygonCoords.forEach((ring: number[][]) => {
+            // Convert 3D coordinates to 2D and swap lat/lng
+            const coordinates = ring.map((coord: number[]) => [coord[1], coord[0]] as [number, number])
+            const polygon = L.polygon(coordinates, {
+              color: settings.borderColor,
+              weight: settings.borderWidth,
+              fillColor: settings.hollow ? 'transparent' : settings.fillColor,
+              fillOpacity: settings.hollow ? 0 : settings.fillOpacity,
+              opacity: settings.borderOpacity
+            })
+            
+            // Add popup with boundary information
+            const popupContent = `
+              <div class="p-2">
+                <h3 class="font-semibold text-blue-600 mb-2">${feature.properties.WADMKK || feature.properties.name || 'Wilayah'}</h3>
+                <p class="text-sm mb-1"><strong>Provinsi:</strong> ${feature.properties.WADMPR || feature.properties.province || 'Jawa Tengah'}</p>
+                <p class="text-sm mb-1"><strong>Luas:</strong> ${feature.properties.Shape_Area ? (feature.properties.Shape_Area * 100).toFixed(2) : 'N/A'} km²</p>
+                <p class="text-sm mb-1"><strong>Panjang Batas:</strong> ${feature.properties.Shape_Leng ? (feature.properties.Shape_Leng * 100).toFixed(2) : 'N/A'} km</p>
+                <p class="text-sm"><strong>Deskripsi:</strong> Batas administratif</p>
+              </div>
+            `
+            polygon.bindPopup(popupContent)
+            
+            newLayer.addLayer(polygon)
+          })
+        })
+      }
+    })
+    
+    mapInstanceRef.current.addLayer(newLayer)
+    setLayerRef(newLayer)
   }
 
   // Base map options with high zoom support (up to 22)
@@ -334,6 +457,74 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
       document.removeEventListener('click', handleGlobalClick)
     }
   }, [])
+
+  // Load boundary data on component mount
+  useEffect(() => {
+    loadBoundaryData('/geojson/surakarta-boundary.geojson', setBoundaryKotaData)
+    loadBoundaryData('/geojson/Kecamatan_Solo.geojson', setBoundaryKecamatanData)
+    loadBoundaryData('/geojson/Desa_Solo.geojson', setBoundaryDesaData)
+  }, [])
+
+  // Default symbology settings
+  const defaultKotaSettings: SymbologySettings = {
+    fillColor: '#3b82f6',
+    borderColor: '#3b82f6',
+    borderWidth: 2,
+    fillOpacity: 0.3,
+    borderOpacity: 0.8,
+    hollow: false
+  }
+
+  const defaultKecamatanSettings: SymbologySettings = {
+    fillColor: '#16a34a',
+    borderColor: '#16a34a',
+    borderWidth: 2,
+    fillOpacity: 0.3,
+    borderOpacity: 0.8,
+    hollow: false
+  }
+
+  const defaultDesaSettings: SymbologySettings = {
+    fillColor: '#ca8a04',
+    borderColor: '#ca8a04',
+    borderWidth: 2,
+    fillOpacity: 0.3,
+    borderOpacity: 0.8,
+    hollow: false
+  }
+
+  // Handle boundary layer visibility changes
+  useEffect(() => {
+    if (showBoundaryKota && boundaryKotaData && mapInstanceRef.current) {
+      const settings = boundaryKotaSettings || defaultKotaSettings
+      renderBoundaryLayer(boundaryKotaData, settings, boundaryKotaLayer, setBoundaryKotaLayer)
+    } else if (!showBoundaryKota && boundaryKotaLayer && mapInstanceRef.current) {
+      mapInstanceRef.current.removeLayer(boundaryKotaLayer)
+      setBoundaryKotaLayer(null)
+    }
+  }, [showBoundaryKota, boundaryKotaData, boundaryKotaSettings])
+
+  // Handle kecamatan boundary layer visibility changes
+  useEffect(() => {
+    if (showBoundaryKecamatan && boundaryKecamatanData && mapInstanceRef.current) {
+      const settings = boundaryKecamatanSettings || defaultKecamatanSettings
+      renderBoundaryLayer(boundaryKecamatanData, settings, boundaryKecamatanLayer, setBoundaryKecamatanLayer)
+    } else if (!showBoundaryKecamatan && boundaryKecamatanLayer && mapInstanceRef.current) {
+      mapInstanceRef.current.removeLayer(boundaryKecamatanLayer)
+      setBoundaryKecamatanLayer(null)
+    }
+  }, [showBoundaryKecamatan, boundaryKecamatanData, boundaryKecamatanSettings])
+
+  // Handle desa boundary layer visibility changes
+  useEffect(() => {
+    if (showBoundaryDesa && boundaryDesaData && mapInstanceRef.current) {
+      const settings = boundaryDesaSettings || defaultDesaSettings
+      renderBoundaryLayer(boundaryDesaData, settings, boundaryDesaLayer, setBoundaryDesaLayer)
+    } else if (!showBoundaryDesa && boundaryDesaLayer && mapInstanceRef.current) {
+      mapInstanceRef.current.removeLayer(boundaryDesaLayer)
+      setBoundaryDesaLayer(null)
+    }
+  }, [showBoundaryDesa, boundaryDesaData, boundaryDesaSettings])
 
   // Handle base map changes without recreating the map
   useEffect(() => {
@@ -717,6 +908,7 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
 
 
 
+
   return (
     <div className="relative w-full h-full">
       {/* Map Container */}
@@ -727,8 +919,32 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
       
 
       
-      {/* Base Map Selector */}
-      <div className="absolute top-4 left-4 z-[1000]">
+      {/* Map Controls - Left Side */}
+      <div className="absolute top-4 left-4 z-[1000] space-y-2">
+        {/* Fullscreen Button */}
+        <FullscreenButton targetRef={mapRef} />
+
+        {/* Symbology Settings */}
+        <SymbologySettingsComponent
+          boundarySettings={{
+            kota: boundaryKotaSettings || defaultKotaSettings,
+            kecamatan: boundaryKecamatanSettings || defaultKecamatanSettings,
+            desa: boundaryDesaSettings || defaultDesaSettings
+          }}
+          boundaryVisibility={{
+            kota: showBoundaryKota,
+            kecamatan: showBoundaryKecamatan,
+            desa: showBoundaryDesa
+          }}
+          onSettingsChange={(type, settings) => onBoundarySettingsChange?.(type, settings)}
+          onVisibilityChange={(type, visible) => {
+            onVisibilityChange?.(type, visible)
+          }}
+        />
+      </div>
+
+      {/* Base Map Selector - Top Right */}
+      <div className="absolute top-4 right-4 z-[1000]">
         <Card className="bg-white/90 backdrop-blur-sm shadow-lg">
           <CardContent className="p-3">
             {/* Header with minimize button */}
@@ -791,7 +1007,7 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
 
       {/* Google Maps URL Input - Compact for Report Page */}
       {!isCompact ? (
-        <div className="absolute top-4 right-4 z-[1000]">
+        <div className="absolute top-4 right-4 z-[1000]" style={{ top: '280px' }}>
           <Card className="bg-white/95 backdrop-blur-md shadow-xl border-0 rounded-xl overflow-hidden">
             <CardContent className="p-0">
               {/* Header */}
@@ -803,7 +1019,7 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
                     </div>
                     <div>
                       <h4 className="font-semibold text-white text-sm">Cari Lokasi</h4>
-                      <p className="text-blue-100 text-xs">Koordinat & URL Google Maps</p>
+                      <p className="text-blue-100 text-xs">Koordinat & URL</p>
                     </div>
                   </div>
                   <Button
@@ -820,127 +1036,127 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
               </div>
               
               {/* Content */}
-                             <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
-                 isCoordInputVisible ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
-               }`}>
-                 <div className="p-4 space-y-4">
-                   <div className="relative">
-                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                       <MapPin className="h-4 w-4 text-gray-400" />
-                     </div>
-                     <input
-                       type="text"
-                       placeholder="Paste koordinat atau URL Google Maps..."
-                       value={coordinates}
-                       onChange={(e) => setCoordinates(e.target.value)}
-                       className="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-gray-50 hover:bg-white"
-                     />
-                   </div>
-                   
-                   <div className="flex space-x-2">
-                     <Button
-                       onClick={handleCoordinateSubmit}
-                       disabled={!coordinates.trim() || isSearching}
-                       className="flex-1 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-medium py-2.5 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                     >
-                       {isSearching ? (
-                         <>
-                           <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                           Mencari...
-                         </>
-                       ) : (
-                         <>
-                           <MapPin className="w-4 h-4 mr-2" />
-                           Cari Lokasi
-                         </>
-                       )}
-                     </Button>
-                     <Button
-                       onClick={() => {
-                         setCoordinates("")
-                         setIsCoordInputVisible(false)
-                       }}
-                       className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-all duration-200"
-                     >
-                       Batal
-                     </Button>
-                   </div>
-                   
-                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                     <div className="flex items-start space-x-2">
-                       <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                         <span className="text-white text-xs">💡</span>
-                       </div>
-                       <div className="text-xs text-blue-800">
-                         <p className="font-medium mb-1">Cara Penggunaan:</p>
-                         <ul className="space-y-1 text-blue-700">
-                           <li>• Copy koordinat dari Google Maps (klik kanan)</li>
-                           <li>• Atau copy URL dari address bar</li>
-                           <li>• Paste di input field di atas</li>
-                           <li>• Klik "Cari Lokasi" untuk navigasi</li>
-                         </ul>
-                         <p className="font-medium mt-2 mb-1">Format yang Didukung:</p>
-                         <ul className="space-y-1 text-blue-700">
-                           <li>• Koordinat: -7.5665, 110.8167</li>
-                           <li>• URL: google.com/maps/@lat,lng</li>
-                           <li>• URL: maps.app.goo.gl/xxx</li>
-                         </ul>
-                       </div>
-                     </div>
-                   </div>
-                 </div>
-               </div>
-             </CardContent>
-           </Card>
-         </div>
-       ) : (
-         /* Compact version for report page */
-         <div className="absolute top-2 right-2 z-[1000]">
-           <Card className="bg-white/90 backdrop-blur-sm shadow-lg">
-             <CardContent className="p-2">
-               <div className="flex items-center space-x-2">
-                 <MapPin className="w-3 h-3 text-blue-600" />
-                 <span className="text-xs font-medium text-gray-700">Cari Lokasi</span>
-                 <Button
-                   onClick={() => setIsCoordInputVisible(!isCoordInputVisible)}
-                   className="p-1 h-5 w-5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded transition-colors"
-                 >
-                   {isCoordInputVisible ? (
-                     <ChevronUp className="w-2 h-2" />
-                   ) : (
-                     <ChevronDown className="w-2 h-2" />
-                   )}
-                 </Button>
-               </div>
-               
-               {/* Compact Content */}
-               {isCoordInputVisible && (
-                 <div className="mt-2 space-y-2">
-                   <div className="flex space-x-1">
-                     <Input
-                       placeholder="Koordinat..."
-                       value={coordinates}
-                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoordinates(e.target.value)}
-                       className="text-xs h-7"
-                     />
-                     <Button
-                       onClick={handleCoordinateSubmit}
-                       disabled={isSearching}
-                       className="bg-blue-500 hover:bg-blue-600 text-white px-2 text-xs h-7"
-                     >
-                       {isSearching ? (
-                         <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
-                       ) : (
-                         "Cari"
-                       )}
-                     </Button>
-                   </div>
-                 </div>
-               )}
-             </CardContent>
-           </Card>
-         </div>
-       )}
+              <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+                isCoordInputVisible ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+              }`}>
+                <div className="p-4 space-y-4">
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <MapPin className="h-4 w-4 text-gray-400" />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Paste koordinat atau URL Google Maps..."
+                      value={coordinates}
+                      onChange={(e) => setCoordinates(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-gray-50 hover:bg-white"
+                    />
+                  </div>
+                  
+                  <div className="flex space-x-2">
+                    <Button
+                      onClick={handleCoordinateSubmit}
+                      disabled={!coordinates.trim() || isSearching}
+                      className="flex-1 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-medium py-2.5 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSearching ? (
+                        <>
+                          <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          Mencari...
+                        </>
+                      ) : (
+                        <>
+                          <MapPin className="w-4 h-4 mr-2" />
+                          Cari Lokasi
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setCoordinates("")
+                        setIsCoordInputVisible(false)
+                      }}
+                      className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-all duration-200"
+                    >
+                      Batal
+                    </Button>
+                  </div>
+                  
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <div className="flex items-start space-x-2">
+                      <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <span className="text-white text-xs">💡</span>
+                      </div>
+                      <div className="text-xs text-blue-800">
+                        <p className="font-medium mb-1">Cara Penggunaan:</p>
+                        <ul className="space-y-1 text-blue-700">
+                          <li>• Copy koordinat dari Google Maps (klik kanan)</li>
+                          <li>• Atau copy URL dari address bar</li>
+                          <li>• Paste di input field di atas</li>
+                          <li>• Klik "Cari Lokasi" untuk navigasi</li>
+                        </ul>
+                        <p className="font-medium mt-2 mb-1">Format yang Didukung:</p>
+                        <ul className="space-y-1 text-blue-700">
+                          <li>• Koordinat: -7.5665, 110.8167</li>
+                          <li>• URL: google.com/maps/@lat,lng</li>
+                          <li>• URL: maps.app.goo.gl/xxx</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        /* Compact version for report page */
+        <div className="absolute top-2 right-2 z-[1000]">
+          <Card className="bg-white/90 backdrop-blur-sm shadow-lg">
+            <CardContent className="p-2">
+              <div className="flex items-center space-x-2">
+                <MapPin className="w-3 h-3 text-blue-600" />
+                <span className="text-xs font-medium text-gray-700">Cari Lokasi</span>
+                <Button
+                  onClick={() => setIsCoordInputVisible(!isCoordInputVisible)}
+                  className="p-1 h-5 w-5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded transition-colors"
+                >
+                  {isCoordInputVisible ? (
+                    <ChevronUp className="w-2 h-2" />
+                  ) : (
+                    <ChevronDown className="w-2 h-2" />
+                  )}
+                </Button>
+              </div>
+              
+              {/* Compact Content */}
+              {isCoordInputVisible && (
+                <div className="mt-2 space-y-2">
+                  <div className="flex space-x-1">
+                    <Input
+                      placeholder="Koordinat..."
+                      value={coordinates}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCoordinates(e.target.value)}
+                      className="text-xs h-7"
+                    />
+                    <Button
+                      onClick={handleCoordinateSubmit}
+                      disabled={isSearching}
+                      className="bg-blue-500 hover:bg-blue-600 text-white px-2 text-xs h-7"
+                    >
+                      {isSearching ? (
+                        <div className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" />
+                      ) : (
+                        "Cari"
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
        {/* Selected Location Info - for Report Page */}
        {isCompact && selectedCoordinates && (
@@ -1003,31 +1219,32 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
 
        {/* Layer Legends - Only show when layer is active */}
        <div 
-         className="absolute top-64 left-4 z-[1000] max-h-[calc(100vh-200px)] overflow-y-auto space-y-4 pr-2 custom-scrollbar"
+         className="absolute top-64 left-4 z-[1000] max-h-[calc(100vh-400px)] overflow-y-auto space-y-2 pr-2 custom-scrollbar"
          style={{
            scrollbarWidth: 'thin',
-           scrollbarColor: '#d1d5db transparent'
+           scrollbarColor: '#d1d5db transparent',
+           maxHeight: 'calc(100vh - 400px)'
          }}
        >
          {/* Accidents Legend */}
          {selectedLayers.accidents && (
            <Card className="bg-white/90 backdrop-blur-sm shadow-lg flex-shrink-0">
-             <CardContent className="p-2">
-               <h4 className="font-semibold text-gray-900 mb-2 text-xs flex items-center">
+             <CardContent className="p-1.5">
+               <h4 className="font-semibold text-gray-900 mb-1 text-xs flex items-center">
                  <CarAccident className="w-3 h-3 mr-1 text-red-500" />
                  Data Kecelakaan
                </h4>
-               <div className="space-y-1 text-xs">
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+               <div className="space-y-0.5 text-xs">
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
                    <span>Fatal</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-orange-500 rounded-full"></div>
                    <span>Luka-luka</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-yellow-500 rounded-full"></div>
                    <span>Kerusakan</span>
                  </div>
                </div>
@@ -1038,26 +1255,26 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
          {/* Infrastructure Legend */}
          {selectedLayers.infrastructure && (
            <Card className="bg-white/90 backdrop-blur-sm shadow-lg flex-shrink-0">
-             <CardContent className="p-2">
-               <h4 className="font-semibold text-gray-900 mb-2 text-xs flex items-center">
+             <CardContent className="p-1.5">
+               <h4 className="font-semibold text-gray-900 mb-1 text-xs flex items-center">
                  <Settings className="w-3 h-3 mr-1 text-blue-500" />
                  Infrastruktur
                </h4>
-               <div className="space-y-1 text-xs">
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-blue-500 rounded-sm"></div>
+               <div className="space-y-0.5 text-xs">
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-blue-500 rounded-sm"></div>
                    <span>🚦 Lampu Lalu Lintas</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-blue-500 rounded-sm"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-blue-500 rounded-sm"></div>
                    <span>🚧 Rambu Lalu Lintas</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-blue-500 rounded-sm"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-blue-500 rounded-sm"></div>
                    <span>📹 CCTV</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-blue-500 rounded-sm"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-blue-500 rounded-sm"></div>
                    <span>🌉 Jembatan</span>
                  </div>
                </div>
@@ -1068,30 +1285,30 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
          {/* Facilities Legend */}
          {selectedLayers.facilities && (
            <Card className="bg-white/90 backdrop-blur-sm shadow-lg flex-shrink-0">
-             <CardContent className="p-2">
-               <h4 className="font-semibold text-gray-900 mb-2 text-xs flex items-center">
+             <CardContent className="p-1.5">
+               <h4 className="font-semibold text-gray-900 mb-1 text-xs flex items-center">
                  <Building2 className="w-3 h-3 mr-1 text-green-500" />
                  Fasilitas Umum
                </h4>
-               <div className="space-y-1 text-xs">
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-green-500 rounded-sm"></div>
+               <div className="space-y-0.5 text-xs">
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-green-500 rounded-sm"></div>
                    <span>🏥 Rumah Sakit</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-green-500 rounded-sm"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-green-500 rounded-sm"></div>
                    <span>👮 Kantor Polisi</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-green-500 rounded-sm"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-green-500 rounded-sm"></div>
                    <span>🚒 Pemadam Kebakaran</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-green-500 rounded-sm"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-green-500 rounded-sm"></div>
                    <span>🏫 Sekolah</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-green-500 rounded-sm"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-green-500 rounded-sm"></div>
                    <span>⛽ SPBU</span>
                  </div>
                </div>
@@ -1102,22 +1319,22 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
          {/* Reports Legend */}
          {selectedLayers.reports && (
            <Card className="bg-white/90 backdrop-blur-sm shadow-lg flex-shrink-0">
-             <CardContent className="p-2">
-               <h4 className="font-semibold text-gray-900 mb-2 text-xs flex items-center">
+             <CardContent className="p-1.5">
+               <h4 className="font-semibold text-gray-900 mb-1 text-xs flex items-center">
                  <Report className="w-3 h-3 mr-1 text-amber-500" />
                  Laporan Masyarakat
                </h4>
-               <div className="space-y-1 text-xs">
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-amber-500 rounded-full"></div>
+               <div className="space-y-0.5 text-xs">
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-amber-500 rounded-full"></div>
                    <span>📍 Pending</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>
                    <span>🔄 Diproses</span>
                  </div>
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-green-500 rounded-full"></div>
                    <span>✅ Selesai</span>
                  </div>
                </div>
@@ -1128,15 +1345,69 @@ const MapComponent = ({ selectedLayers, onLocationSelect, isCompact = false, onM
          {/* Blackspots Legend */}
          {selectedLayers.blackspots && (
            <Card className="bg-white/90 backdrop-blur-sm shadow-lg flex-shrink-0">
-             <CardContent className="p-2">
-               <h4 className="font-semibold text-gray-900 mb-2 text-xs flex items-center">
+             <CardContent className="p-1.5">
+               <h4 className="font-semibold text-gray-900 mb-1 text-xs flex items-center">
                  <AlertOctagon className="w-3 h-3 mr-1 text-red-600" />
                  Blackspot
                </h4>
-               <div className="space-y-1 text-xs">
-                 <div className="flex items-center space-x-2">
-                   <div className="w-3 h-3 bg-red-600 rounded-full"></div>
+               <div className="space-y-0.5 text-xs">
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-red-600 rounded-full"></div>
                    <span>⚠️ Blackspot Aktif</span>
+                 </div>
+               </div>
+             </CardContent>
+           </Card>
+         )}
+
+         {/* Boundary Legend */}
+         {showBoundaryKota && (
+           <Card className="bg-white/90 backdrop-blur-sm shadow-lg flex-shrink-0">
+             <CardContent className="p-1.5">
+               <h4 className="font-semibold text-blue-700 mb-1 text-xs flex items-center">
+                 <MapPin className="w-3 h-3 mr-1 text-blue-600" />
+                 Batas Kota
+               </h4>
+               <div className="space-y-0.5 text-xs">
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-blue-600 rounded-sm"></div>
+                   <span>🔵 Batas Kota Surakarta</span>
+                 </div>
+               </div>
+             </CardContent>
+           </Card>
+         )}
+
+         {/* Kecamatan Boundary Legend */}
+         {showBoundaryKecamatan && (
+           <Card className="bg-white/90 backdrop-blur-sm shadow-lg flex-shrink-0">
+             <CardContent className="p-1.5">
+               <h4 className="font-semibold text-green-700 mb-1 text-xs flex items-center">
+                 <MapPin className="w-3 h-3 mr-1 text-green-600" />
+                 Batas Kecamatan
+               </h4>
+               <div className="space-y-0.5 text-xs">
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-green-600 rounded-sm"></div>
+                   <span>🟢 Batas Kecamatan</span>
+                 </div>
+               </div>
+             </CardContent>
+           </Card>
+         )}
+
+         {/* Desa Boundary Legend */}
+         {showBoundaryDesa && (
+           <Card className="bg-white/90 backdrop-blur-sm shadow-lg flex-shrink-0">
+             <CardContent className="p-1.5">
+               <h4 className="font-semibold text-yellow-700 mb-1 text-xs flex items-center">
+                 <MapPin className="w-3 h-3 mr-1 text-yellow-600" />
+                 Batas Desa
+               </h4>
+               <div className="space-y-0.5 text-xs">
+                 <div className="flex items-center space-x-1.5">
+                   <div className="w-2.5 h-2.5 bg-yellow-600 rounded-sm"></div>
+                   <span>🟡 Batas Desa</span>
                  </div>
                </div>
              </CardContent>

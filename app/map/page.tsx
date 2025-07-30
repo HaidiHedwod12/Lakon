@@ -89,7 +89,40 @@ export default function MapPage() {
     reports: true,
     blackspots: false,
   })
+  const [showBoundary, setShowBoundary] = useState(false)
+  const [boundaryOpacity, setBoundaryOpacity] = useState(0.3)
+  // Tambahkan state untuk tiga boundary
+  // Boundary settings state
+  const [showBoundaryKota, setShowBoundaryKota] = useState(false)
+  const [boundaryKotaSettings, setBoundaryKotaSettings] = useState({
+    fillColor: '#3b82f6',
+    borderColor: '#3b82f6',
+    borderWidth: 2,
+    fillOpacity: 0.3,
+    borderOpacity: 0.8,
+    hollow: false
+  })
 
+  const [showBoundaryKecamatan, setShowBoundaryKecamatan] = useState(false)
+  const [boundaryKecamatanSettings, setBoundaryKecamatanSettings] = useState({
+    fillColor: '#16a34a',
+    borderColor: '#16a34a',
+    borderWidth: 2,
+    fillOpacity: 0.3,
+    borderOpacity: 0.8,
+    hollow: false
+  })
+
+  const [showBoundaryDesa, setShowBoundaryDesa] = useState(false)
+  const [boundaryDesaSettings, setBoundaryDesaSettings] = useState({
+    fillColor: '#ca8a04',
+    borderColor: '#ca8a04',
+    borderWidth: 2,
+    fillOpacity: 0.3,
+    borderOpacity: 0.8,
+    hollow: false
+  })
+  
   const [selectedModal, setSelectedModal] = useState<string | null>(null)
   const [timeRange, setTimeRange] = useState([2024])
   
@@ -541,6 +574,27 @@ export default function MapPage() {
       icon: AlertOctagon,
       legends: [{ icon: "🔴", label: "Blackspot Aktif", color: "bg-red-600" }],
     },
+    {
+      key: "boundaryKota",
+      label: "Batas Kota",
+      color: "bg-blue-600",
+      icon: MapPin,
+      legends: [{ icon: "🔵", label: "Batas Kota Surakarta", color: "bg-blue-600" }],
+    },
+    {
+      key: "boundaryKecamatan",
+      label: "Batas Kecamatan",
+      color: "bg-green-600",
+      icon: MapPin,
+      legends: [{ icon: "🟢", label: "Batas Kecamatan", color: "bg-green-600" }],
+    },
+    {
+      key: "boundaryDesa",
+      label: "Batas Desa",
+      color: "bg-yellow-600",
+      icon: MapPin,
+      legends: [{ icon: "🟡", label: "Batas Desa", color: "bg-yellow-600" }],
+    },
   ]
 
   const openModal = (modalId: string) => {
@@ -551,11 +605,20 @@ export default function MapPage() {
     setSelectedModal(null)
   }
 
+  // Update toggleLayer agar handle boundary baru
   const toggleLayer = (layerKey: string) => {
-    setSelectedLayers((prev) => {
-      const newLayers = { ...prev, [layerKey]: !prev[layerKey] }
-      return newLayers
-    })
+    if (layerKey === "boundaryKota") {
+      setShowBoundaryKota(!showBoundaryKota)
+    } else if (layerKey === "boundaryKecamatan") {
+      setShowBoundaryKecamatan(!showBoundaryKecamatan)
+    } else if (layerKey === "boundaryDesa") {
+      setShowBoundaryDesa(!showBoundaryDesa)
+    } else {
+      setSelectedLayers((prev) => {
+        const newLayers = { ...prev, [layerKey]: !prev[layerKey] }
+        return newLayers
+      })
+    }
   }
 
   const getVisibleLegends = () => {
@@ -637,10 +700,10 @@ export default function MapPage() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-slate-900">
+    <div className="h-screen bg-slate-900 overflow-hidden">
       <AuthProvider>
 
-      <div className="flex h-[calc(100vh-80px)]">
+      <div className="flex h-full">
         {/* Sidebar Controls */}
         <div className="w-80 bg-slate-800 border-r border-slate-700 overflow-y-auto">
           <div className="p-6 space-y-6">
@@ -766,18 +829,44 @@ export default function MapPage() {
                       <span className="text-slate-300 font-medium">{layer.label}</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Switch checked={selectedLayers[layer.key]} onCheckedChange={() => toggleLayer(layer.key)} />
+                      <Switch 
+                        checked={layer.key === "boundaryKota" ? showBoundaryKota : layer.key === "boundaryKecamatan" ? showBoundaryKecamatan : layer.key === "boundaryDesa" ? showBoundaryDesa : selectedLayers[layer.key]} 
+                        onCheckedChange={() => toggleLayer(layer.key)} 
+                      />
                       <Button className="p-1 h-6 w-6 bg-transparent hover:bg-slate-700" onClick={() => toggleLayer(layer.key)}>
-                        {selectedLayers[layer.key] ? (
+                        {(layer.key === "boundaryKota" ? showBoundaryKota : layer.key === "boundaryKecamatan" ? showBoundaryKecamatan : layer.key === "boundaryDesa" ? showBoundaryDesa : selectedLayers[layer.key]) ? (
                           <Eye className="w-3 h-3 text-green-400" />
                         ) : (
                           <EyeOff className="w-3 h-3 text-slate-500" />
                         )}
                       </Button>
                     </div>
+
                   </div>
                 ))}
               </div>
+              
+              {/* Boundary Opacity Control */}
+              {showBoundary && (
+                <div className="mt-4 p-3 bg-slate-700 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-slate-300 text-sm font-medium">Transparansi Batas Wilayah</span>
+                    <span className="text-slate-400 text-xs">{Math.round(boundaryOpacity * 100)}%</span>
+                  </div>
+                  <Slider
+                    value={[boundaryOpacity]}
+                    onValueChange={(value) => setBoundaryOpacity(value[0])}
+                    max={1}
+                    min={0.1}
+                    step={0.1}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-slate-400 mt-1">
+                    <span>Transparan</span>
+                    <span>Solid</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Filters */}
@@ -933,10 +1022,42 @@ export default function MapPage() {
         </div>
 
         {/* Map Area */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative overflow-hidden">
           <DynamicMapComponent 
             selectedLayers={selectedLayers}
             filteredAccidents={accidents}
+            showBoundaryKota={showBoundaryKota}
+            boundaryKotaSettings={boundaryKotaSettings}
+            showBoundaryKecamatan={showBoundaryKecamatan}
+            boundaryKecamatanSettings={boundaryKecamatanSettings}
+            showBoundaryDesa={showBoundaryDesa}
+            boundaryDesaSettings={boundaryDesaSettings}
+            onBoundarySettingsChange={(type, settings) => {
+              switch (type) {
+                case 'kota':
+                  setBoundaryKotaSettings(settings)
+                  break
+                case 'kecamatan':
+                  setBoundaryKecamatanSettings(settings)
+                  break
+                case 'desa':
+                  setBoundaryDesaSettings(settings)
+                  break
+              }
+            }}
+            onVisibilityChange={(type, visible) => {
+              switch (type) {
+                case 'kota':
+                  setShowBoundaryKota(visible)
+                  break
+                case 'kecamatan':
+                  setShowBoundaryKecamatan(visible)
+                  break
+                case 'desa':
+                  setShowBoundaryDesa(visible)
+                  break
+              }
+            }}
             onLocationSelect={(lat: number, lng: number) => {
               console.log("Location selected:", lat, lng)
             }}
