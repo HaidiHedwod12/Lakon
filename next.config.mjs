@@ -9,6 +9,15 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  experimental: {
+    // Disable static generation for pages with SSR issues
+    workerThreads: false,
+    cpus: 1
+  },
+  // Disable static generation for problematic pages
+  generateStaticParams: async () => {
+    return []
+  }
 }
 
 export default nextConfig

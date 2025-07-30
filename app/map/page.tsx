@@ -54,6 +54,9 @@ import MapComponent from "@/components/Map"
 import { accidentData, infrastructureData, facilityData, communityReports, overallStats } from "@/lib/dummy-data"
 import { useFirebase } from "@/hooks/useFirebase"
 
+// Force dynamic rendering to prevent SSR issues
+export const dynamic = 'force-dynamic'
+
 // Interface for search results
 interface SearchResult {
   id: string
