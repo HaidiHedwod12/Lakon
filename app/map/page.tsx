@@ -700,7 +700,7 @@ export default function MapPage() {
   }, [])
 
   return (
-    <div className="h-screen bg-slate-900 overflow-hidden">
+    <div className="h-screen bg-slate-900 overflow-hidden map-page">
       <AuthProvider>
 
       <div className="flex h-full">

@@ -70,7 +70,7 @@
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -79,7 +79,7 @@
 
 ::-webkit-scrollbar-thumb {
   background: #475569;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -176,10 +176,22 @@
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* Prevent body scroll */
-html, body {
+/* Map page specific styles - prevent scroll only on map page */
+.map-page {
+  overflow: hidden;
+  height: 100vh;
+}
+
+.map-page html,
+.map-page body {
   overflow: hidden;
   height: 100%;
+}
+
+/* Ensure normal scroll for all other pages */
+html, body {
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* Custom scrollbar for legend */
@@ -198,4 +210,44 @@ html, body {
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(156, 163, 175, 0.7);
+}
+
+/* Ensure proper scrolling for all pages except map */
+body:not(.map-page) {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Fix for any potential height issues */
+.min-h-screen {
+  min-height: 100vh;
+}
+
+/* Ensure content can scroll properly */
+.overflow-y-auto {
+  overflow-y: auto;
+}
+
+/* Custom scrollbar styling for better visibility */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+  border: 1px solid #1e293b;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+::-webkit-scrollbar-corner {
+  background: #1e293b;
 }
