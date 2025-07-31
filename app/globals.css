@@ -251,3 +251,108 @@ body:not(.map-page) {
 ::-webkit-scrollbar-corner {
   background: #1e293b;
 }
+
+/* Ensure navbar stays above all map elements */
+nav {
+  z-index: 99999 !important;
+  position: sticky !important;
+  top: 0 !important;
+  background: rgba(15, 23, 42, 0.95) !important;
+  backdrop-filter: blur(20px) !important;
+  border-bottom: 1px solid rgb(51, 65, 85) !important;
+}
+
+/* Ensure map container doesn't interfere with navbar */
+.leaflet-container {
+  z-index: 1 !important;
+}
+
+.leaflet-pane {
+  z-index: 1 !important;
+}
+
+.leaflet-overlay-pane {
+  z-index: 2 !important;
+}
+
+.leaflet-marker-pane {
+  z-index: 3 !important;
+}
+
+.leaflet-tooltip-pane {
+  z-index: 4 !important;
+}
+
+.leaflet-popup-pane {
+  z-index: 5 !important;
+}
+
+/* Prevent any map interactions from affecting navbar */
+.leaflet-control-container {
+  z-index: 10 !important;
+}
+
+/* Ensure navbar is always visible and clickable */
+nav * {
+  pointer-events: auto !important;
+}
+
+/* Force navbar to stay on top */
+nav {
+  isolation: isolate !important;
+}
+
+/* Additional navbar protection for map page */
+.map-page nav {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 99999 !important;
+  background: rgba(15, 23, 42, 0.98) !important;
+  backdrop-filter: blur(20px) !important;
+  border-bottom: 1px solid rgb(51, 65, 85) !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Ensure map content doesn't overlap navbar */
+.map-page .flex.h-full {
+  padding-top: 64px !important; /* Height of navbar */
+}
+
+/* Prevent any map interactions from affecting navbar visibility */
+.map-page nav * {
+  pointer-events: auto !important;
+  user-select: auto !important;
+}
+
+/* Ensure navbar buttons and links are always clickable */
+.map-page nav button,
+.map-page nav a {
+  position: relative !important;
+  z-index: 100000 !important;
+}
+
+/* Boundary label styling */
+.boundary-label {
+  pointer-events: none !important;
+  z-index: 1000 !important;
+}
+.boundary-label div {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  text-align: center;
+  line-height: 1.2;
+  letter-spacing: 0.025em;
+  z-index: 1000;
+  position: relative;
+  display: flex; /* Added for centering */
+  align-items: center; /* Added for centering */
+  justify-content: center; /* Added for centering */
+  transform: translate(-50%, -50%); /* Added for centering */
+  white-space: nowrap; /* Added for better text handling */
+  user-select: none; /* Added to prevent text selection */
+  background: rgba(255, 255, 255, 0.8) !important; /* Semi-transparent background for better readability */
+  padding: 2px 6px !important; /* Add some padding around the text */
+  border-radius: 3px !important; /* Rounded corners */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important; /* Subtle shadow for better visibility */
+}

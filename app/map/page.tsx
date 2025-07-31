@@ -100,7 +100,11 @@ export default function MapPage() {
     borderWidth: 2,
     fillOpacity: 0.3,
     borderOpacity: 0.8,
-    hollow: false
+    hollow: false,
+    showLabels: true,
+    labelColor: '#3b82f6',
+    labelSize: 12,
+    labelBold: false
   })
 
   const [showBoundaryKecamatan, setShowBoundaryKecamatan] = useState(false)
@@ -110,17 +114,25 @@ export default function MapPage() {
     borderWidth: 2,
     fillOpacity: 0.3,
     borderOpacity: 0.8,
-    hollow: false
+    hollow: false,
+    showLabels: true,
+    labelColor: '#16a34a',
+    labelSize: 10,
+    labelBold: false
   })
 
-  const [showBoundaryDesa, setShowBoundaryDesa] = useState(false)
-  const [boundaryDesaSettings, setBoundaryDesaSettings] = useState({
+  const [showBoundaryKelurahan, setShowBoundaryKelurahan] = useState(false)
+  const [boundaryKelurahanSettings, setBoundaryKelurahanSettings] = useState({
     fillColor: '#ca8a04',
     borderColor: '#ca8a04',
     borderWidth: 2,
     fillOpacity: 0.3,
     borderOpacity: 0.8,
-    hollow: false
+    hollow: false,
+    showLabels: true,
+    labelColor: '#ca8a04',
+    labelSize: 9,
+    labelBold: false
   })
   
   const [selectedModal, setSelectedModal] = useState<string | null>(null)
@@ -589,11 +601,11 @@ export default function MapPage() {
       legends: [{ icon: "🟢", label: "Batas Kecamatan", color: "bg-green-600" }],
     },
     {
-      key: "boundaryDesa",
-      label: "Batas Desa",
+      key: "boundaryKelurahan",
+      label: "Batas Kelurahan",
       color: "bg-yellow-600",
       icon: MapPin,
-      legends: [{ icon: "🟡", label: "Batas Desa", color: "bg-yellow-600" }],
+      legends: [{ icon: "🟡", label: "Batas Kelurahan", color: "bg-yellow-600" }],
     },
   ]
 
@@ -611,8 +623,8 @@ export default function MapPage() {
       setShowBoundaryKota(!showBoundaryKota)
     } else if (layerKey === "boundaryKecamatan") {
       setShowBoundaryKecamatan(!showBoundaryKecamatan)
-    } else if (layerKey === "boundaryDesa") {
-      setShowBoundaryDesa(!showBoundaryDesa)
+    } else if (layerKey === "boundaryKelurahan") {
+      setShowBoundaryKelurahan(!showBoundaryKelurahan)
     } else {
       setSelectedLayers((prev) => {
         const newLayers = { ...prev, [layerKey]: !prev[layerKey] }
@@ -699,13 +711,12 @@ export default function MapPage() {
     }
   }, [])
 
-  return (
+    return (
     <div className="h-screen bg-slate-900 overflow-hidden map-page">
       <AuthProvider>
-
-      <div className="flex h-full">
-        {/* Sidebar Controls */}
-        <div className="w-80 bg-slate-800 border-r border-slate-700 overflow-y-auto">
+        <div className="flex h-full pt-16">
+          {/* Sidebar Controls */}
+          <div className="w-80 bg-slate-800 border-r border-slate-700 overflow-y-auto">
           <div className="p-6 space-y-6">
             {/* Enhanced Search */}
             <div className="search-container">
@@ -830,11 +841,11 @@ export default function MapPage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <Switch 
-                        checked={layer.key === "boundaryKota" ? showBoundaryKota : layer.key === "boundaryKecamatan" ? showBoundaryKecamatan : layer.key === "boundaryDesa" ? showBoundaryDesa : selectedLayers[layer.key]} 
+                        checked={layer.key === "boundaryKota" ? showBoundaryKota : layer.key === "boundaryKecamatan" ? showBoundaryKecamatan : layer.key === "boundaryKelurahan" ? showBoundaryKelurahan : selectedLayers[layer.key]} 
                         onCheckedChange={() => toggleLayer(layer.key)} 
                       />
                       <Button className="p-1 h-6 w-6 bg-transparent hover:bg-slate-700" onClick={() => toggleLayer(layer.key)}>
-                        {(layer.key === "boundaryKota" ? showBoundaryKota : layer.key === "boundaryKecamatan" ? showBoundaryKecamatan : layer.key === "boundaryDesa" ? showBoundaryDesa : selectedLayers[layer.key]) ? (
+                        {(layer.key === "boundaryKota" ? showBoundaryKota : layer.key === "boundaryKecamatan" ? showBoundaryKecamatan : layer.key === "boundaryKelurahan" ? showBoundaryKelurahan : selectedLayers[layer.key]) ? (
                           <Eye className="w-3 h-3 text-green-400" />
                         ) : (
                           <EyeOff className="w-3 h-3 text-slate-500" />
@@ -1021,63 +1032,63 @@ export default function MapPage() {
           </div>
         </div>
 
-        {/* Map Area */}
-        <div className="flex-1 relative overflow-hidden">
-          <DynamicMapComponent 
-            selectedLayers={selectedLayers}
-            filteredAccidents={accidents}
-            showBoundaryKota={showBoundaryKota}
-            boundaryKotaSettings={boundaryKotaSettings}
-            showBoundaryKecamatan={showBoundaryKecamatan}
-            boundaryKecamatanSettings={boundaryKecamatanSettings}
-            showBoundaryDesa={showBoundaryDesa}
-            boundaryDesaSettings={boundaryDesaSettings}
-            onBoundarySettingsChange={(type, settings) => {
-              switch (type) {
-                case 'kota':
-                  setBoundaryKotaSettings(settings)
-                  break
-                case 'kecamatan':
-                  setBoundaryKecamatanSettings(settings)
-                  break
-                case 'desa':
-                  setBoundaryDesaSettings(settings)
-                  break
-              }
-            }}
-            onVisibilityChange={(type, visible) => {
-              switch (type) {
-                case 'kota':
-                  setShowBoundaryKota(visible)
-                  break
-                case 'kecamatan':
-                  setShowBoundaryKecamatan(visible)
-                  break
-                case 'desa':
-                  setShowBoundaryDesa(visible)
-                  break
-              }
-            }}
-            onLocationSelect={(lat: number, lng: number) => {
-              console.log("Location selected:", lat, lng)
-            }}
-            onMapReady={(mapInstance: any) => {
-              // Store map instance globally for search functionality
-              ;(window as any).mapInstance = mapInstance
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Modals */}
-      {quickStats.map((stat) => (
-        <Modal key={stat.id} isOpen={selectedModal === stat.id} onClose={closeModal} title={`Detail ${stat.title}`}>
-          <div className="mb-4">
-            <p className="text-slate-300 text-sm leading-relaxed">{stat.description}</p>
+          {/* Map Area */}
+          <div className="flex-1 relative overflow-hidden">
+            <DynamicMapComponent 
+              selectedLayers={selectedLayers}
+              filteredAccidents={accidents}
+              showBoundaryKota={showBoundaryKota}
+              boundaryKotaSettings={boundaryKotaSettings}
+              showBoundaryKecamatan={showBoundaryKecamatan}
+              boundaryKecamatanSettings={boundaryKecamatanSettings}
+              showBoundaryKelurahan={showBoundaryKelurahan}
+              boundaryKelurahanSettings={boundaryKelurahanSettings}
+              onBoundarySettingsChange={(type, settings) => {
+                switch (type) {
+                  case 'kota':
+                    setBoundaryKotaSettings(settings)
+                    break
+                  case 'kecamatan':
+                    setBoundaryKecamatanSettings(settings)
+                    break
+                  case 'kelurahan':
+                    setBoundaryKelurahanSettings(settings)
+                    break
+                }
+              }}
+              onVisibilityChange={(type, visible) => {
+                switch (type) {
+                  case 'kota':
+                    setShowBoundaryKota(visible)
+                    break
+                  case 'kecamatan':
+                    setShowBoundaryKecamatan(visible)
+                    break
+                  case 'kelurahan':
+                    setShowBoundaryKelurahan(visible)
+                    break
+                }
+              }}
+              onLocationSelect={(lat: number, lng: number) => {
+                console.log("Location selected:", lat, lng)
+              }}
+              onMapReady={(mapInstance: any) => {
+                // Store map instance globally for search functionality
+                ;(window as any).mapInstance = mapInstance
+              }}
+            />
           </div>
-          {renderModalContent(stat)}
-        </Modal>
-      ))}
+        </div>
+
+        {/* Modals */}
+        {quickStats.map((stat) => (
+          <Modal key={stat.id} isOpen={selectedModal === stat.id} onClose={closeModal} title={`Detail ${stat.title}`}>
+            <div className="mb-4">
+              <p className="text-slate-300 text-sm leading-relaxed">{stat.description}</p>
+            </div>
+            {renderModalContent(stat)}
+          </Modal>
+        ))}
       </AuthProvider>
     </div>
   )

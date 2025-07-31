@@ -47,6 +47,10 @@ interface SymbologySettings {
   fillOpacity: number
   borderOpacity: number
   hollow: boolean
+  showLabels: boolean
+  labelColor: string
+  labelSize: number
+  labelBold: boolean
 }
 
 interface MapProps {
@@ -59,10 +63,10 @@ interface MapProps {
   boundaryKotaSettings?: SymbologySettings
   showBoundaryKecamatan?: boolean
   boundaryKecamatanSettings?: SymbologySettings
-  showBoundaryDesa?: boolean
-  boundaryDesaSettings?: SymbologySettings
-  onBoundarySettingsChange?: (type: 'kota' | 'kecamatan' | 'desa', settings: SymbologySettings) => void
-  onVisibilityChange?: (type: 'kota' | 'kecamatan' | 'desa', visible: boolean) => void
+  showBoundaryKelurahan?: boolean
+  boundaryKelurahanSettings?: SymbologySettings
+  onBoundarySettingsChange?: (type: 'kota' | 'kecamatan' | 'kelurahan', settings: SymbologySettings) => void
+  onVisibilityChange?: (type: 'kota' | 'kecamatan' | 'kelurahan', visible: boolean) => void
 }
 
 interface MapData {
@@ -86,8 +90,8 @@ const MapComponent = ({
   boundaryKotaSettings,
   showBoundaryKecamatan = false,
   boundaryKecamatanSettings,
-  showBoundaryDesa = false,
-  boundaryDesaSettings,
+  showBoundaryKelurahan = false,
+  boundaryKelurahanSettings,
   onBoundarySettingsChange,
   onVisibilityChange,
 }: MapProps) => {
@@ -112,10 +116,10 @@ const MapComponent = ({
   } | null>(null)
   const [boundaryKotaData, setBoundaryKotaData] = useState<any>(null)
   const [boundaryKecamatanData, setBoundaryKecamatanData] = useState<any>(null)
-  const [boundaryDesaData, setBoundaryDesaData] = useState<any>(null)
+  const [boundaryKelurahanData, setBoundaryKelurahanData] = useState<any>(null)
   const [boundaryKotaLayer, setBoundaryKotaLayer] = useState<L.LayerGroup | null>(null)
   const [boundaryKecamatanLayer, setBoundaryKecamatanLayer] = useState<L.LayerGroup | null>(null)
-  const [boundaryDesaLayer, setBoundaryDesaLayer] = useState<L.LayerGroup | null>(null)
+  const [boundaryKelurahanLayer, setBoundaryKelurahanLayer] = useState<L.LayerGroup | null>(null)
 
   // Firebase hooks for all data types
   const { data: firebaseAccidents } = useFirebase("accidents")
@@ -143,8 +147,377 @@ const MapComponent = ({
     }
   }
 
-    // Function to render boundary layer with symbology settings
-  const renderBoundaryLayer = (data: any, settings: SymbologySettings, layerRef: L.LayerGroup | null, setLayerRef: (layer: L.LayerGroup | null) => void) => {
+  // Helper function to calculate the true centroid of a polygon
+  const calculatePolygonCentroid = (latLngs: L.LatLng[]) => {
+    if (latLngs.length < 3) return null
+    
+    let area = 0
+    let centroidX = 0
+    let centroidY = 0
+    
+    for (let i = 0; i < latLngs.length; i++) {
+      const j = (i + 1) % latLngs.length
+      const cross = latLngs[i].lng * latLngs[j].lat - latLngs[j].lng * latLngs[i].lat
+      area += cross
+      centroidX += (latLngs[i].lng + latLngs[j].lng) * cross
+      centroidY += (latLngs[i].lat + latLngs[j].lat) * cross
+    }
+    
+    area /= 2
+    if (Math.abs(area) < 1e-10) return null // Degenerate polygon
+    
+    centroidX /= (6 * area)
+    centroidY /= (6 * area)
+    
+    return [centroidY, centroidX] as [number, number] // Return as [lat, lng]
+  }
+
+  // Helper function to check if a point is inside a polygon
+  const isPointInPolygon = (point: [number, number], polygonLatLngs: L.LatLng[]) => {
+    const [x, y] = point
+    let inside = false
+    
+    for (let i = 0, j = polygonLatLngs.length - 1; i < polygonLatLngs.length; j = i++) {
+      const xi = polygonLatLngs[i].lng
+      const yi = polygonLatLngs[i].lat
+      const xj = polygonLatLngs[j].lng
+      const yj = polygonLatLngs[j].lat
+      
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+        inside = !inside
+      }
+    }
+    
+    return inside
+  }
+
+  // Helper function to find the best label position within a polygon
+  const findBestLabelPosition = (polygon: L.Polygon, labelText: string, settings: SymbologySettings) => {
+    const bounds = polygon.getBounds()
+    const latLngs = polygon.getLatLngs()[0] as L.LatLng[]
+    
+    // First try to find the pole of inaccessibility (point furthest from any boundary)
+    // This is often better than centroid for irregular shapes
+    const polePoint = findPoleOfInaccessibility(latLngs)
+    if (polePoint && isPointInPolygon(polePoint, latLngs)) {
+      return L.latLng(polePoint[0], polePoint[1])
+    }
+    
+    // If pole of inaccessibility fails, try the true centroid of the polygon
+    const centroid = calculatePolygonCentroid(latLngs)
+    if (centroid && isPointInPolygon(centroid, latLngs)) {
+      return L.latLng(centroid[0], centroid[1])
+    }
+    
+    // If centroid is outside or invalid, find the best internal point
+    const center = bounds.getCenter()
+    
+    // Check if center is inside the polygon
+    if (isPointInPolygon([center.lat, center.lng], latLngs)) {
+      return center
+    }
+    
+    // If center is outside, find the best point inside using a more precise search
+    const boundsWidth = Math.abs(bounds.getEast() - bounds.getWest())
+    const boundsHeight = Math.abs(bounds.getNorth() - bounds.getSouth())
+    const stepSize = Math.min(boundsWidth, boundsHeight) / 60 // More precise grid
+    
+    // Try to find a point that's as close as possible to the center
+    let bestPoint = center
+    let bestDistance = Infinity
+    
+    // Search in a spiral pattern from center outward
+    for (let radius = 0; radius < Math.min(boundsWidth, boundsHeight) / 3; radius += stepSize) {
+      for (let angle = 0; angle < 2 * Math.PI; angle += Math.PI / 24) { // 48 directions for more precision
+        const testLat = center.lat + radius * Math.cos(angle)
+        const testLng = center.lng + radius * Math.sin(angle)
+        const testPoint: [number, number] = [testLat, testLng]
+        
+        if (isPointInPolygon(testPoint, latLngs)) {
+          const distance = Math.sqrt(
+            Math.pow(testLat - center.lat, 2) + Math.pow(testLng - center.lng, 2)
+          )
+          if (distance < bestDistance) {
+            bestDistance = distance
+            bestPoint = L.latLng(testLat, testLng)
+          }
+        }
+      }
+    }
+    
+    // If we found a better point, use it
+    if (bestDistance < Infinity) {
+      return bestPoint
+    }
+    
+    // If still no point found, try a grid search with smaller steps
+    for (let lat = bounds.getSouth(); lat <= bounds.getNorth(); lat += stepSize) {
+      for (let lng = bounds.getWest(); lng <= bounds.getEast(); lng += stepSize) {
+        const testPoint: [number, number] = [lat, lng]
+        if (isPointInPolygon(testPoint, latLngs)) {
+          return L.latLng(lat, lng)
+        }
+      }
+    }
+    
+    // Final fallback to bounds center
+    return center
+  }
+
+  // Helper function to find the pole of inaccessibility (point furthest from any boundary)
+  const findPoleOfInaccessibility = (latLngs: L.LatLng[]) => {
+    if (latLngs.length < 3) return null
+    
+    // Find the bounding box
+    let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity
+    for (const point of latLngs) {
+      minLat = Math.min(minLat, point.lat)
+      maxLat = Math.max(maxLat, point.lat)
+      minLng = Math.min(minLng, point.lng)
+      maxLng = Math.max(maxLng, point.lng)
+    }
+    
+    // First try with a coarse grid to find a good starting area
+    const coarseGridSize = 20 // 20x20 grid for initial search
+    const latStepCoarse = (maxLat - minLat) / coarseGridSize
+    const lngStepCoarse = (maxLng - minLng) / coarseGridSize
+    
+    let bestPointCoarse: [number, number] | null = null
+    let maxDistanceCoarse = -1
+    
+    // Coarse grid search
+    for (let i = 0; i <= coarseGridSize; i++) {
+      for (let j = 0; j <= coarseGridSize; j++) {
+        const lat = minLat + i * latStepCoarse
+        const lng = minLng + j * lngStepCoarse
+        const testPoint: [number, number] = [lat, lng]
+        
+        if (isPointInPolygon(testPoint, latLngs)) {
+          // Calculate minimum distance to any boundary edge
+          let minDistToBoundary = Infinity
+          for (let k = 0; k < latLngs.length; k++) {
+            const p1 = latLngs[k]
+            const p2 = latLngs[(k + 1) % latLngs.length]
+            
+            const dist = pointToLineSegmentDistance(testPoint, [p1.lat, p1.lng], [p2.lat, p2.lng])
+            minDistToBoundary = Math.min(minDistToBoundary, dist)
+          }
+          
+          if (minDistToBoundary > maxDistanceCoarse) {
+            maxDistanceCoarse = minDistToBoundary
+            bestPointCoarse = testPoint
+          }
+        }
+      }
+    }
+    
+    // If we found a good point in the coarse search, refine it with a finer grid
+    if (bestPointCoarse) {
+      // Define a smaller search area around the best point from coarse search
+      const refinementRadius = Math.max(latStepCoarse, lngStepCoarse) * 2
+      const refineLat1 = Math.max(minLat, bestPointCoarse[0] - refinementRadius)
+      const refineLat2 = Math.min(maxLat, bestPointCoarse[0] + refinementRadius)
+      const refineLng1 = Math.max(minLng, bestPointCoarse[1] - refinementRadius)
+      const refineLng2 = Math.min(maxLng, bestPointCoarse[1] + refinementRadius)
+      
+      // Use a finer grid in this smaller area
+      const fineGridSize = 30
+      const latStepFine = (refineLat2 - refineLat1) / fineGridSize
+      const lngStepFine = (refineLng2 - refineLng1) / fineGridSize
+      
+      let bestPointFine: [number, number] | null = bestPointCoarse
+      let maxDistanceFine = maxDistanceCoarse
+      
+      // Fine grid search
+      for (let i = 0; i <= fineGridSize; i++) {
+        for (let j = 0; j <= fineGridSize; j++) {
+          const lat = refineLat1 + i * latStepFine
+          const lng = refineLng1 + j * lngStepFine
+          const testPoint: [number, number] = [lat, lng]
+          
+          if (isPointInPolygon(testPoint, latLngs)) {
+            // Calculate minimum distance to any boundary edge
+            let minDistToBoundary = Infinity
+            for (let k = 0; k < latLngs.length; k++) {
+              const p1 = latLngs[k]
+              const p2 = latLngs[(k + 1) % latLngs.length]
+              
+              const dist = pointToLineSegmentDistance(testPoint, [p1.lat, p1.lng], [p2.lat, p2.lng])
+              minDistToBoundary = Math.min(minDistToBoundary, dist)
+            }
+            
+            if (minDistToBoundary > maxDistanceFine) {
+              maxDistanceFine = minDistToBoundary
+              bestPointFine = testPoint
+            }
+          }
+        }
+      }
+      
+      return bestPointFine
+    }
+    
+    // Fallback to centroid if no good point found
+    const centroid = calculatePolygonCentroid(latLngs)
+    if (centroid && isPointInPolygon(centroid, latLngs)) {
+      return centroid
+    }
+    
+    // Last resort: just use the first point that's inside the polygon
+    for (let i = 0; i <= 50; i++) {
+      for (let j = 0; j <= 50; j++) {
+        const lat = minLat + i * (maxLat - minLat) / 50
+        const lng = minLng + j * (maxLng - minLng) / 50
+        const testPoint: [number, number] = [lat, lng]
+        
+        if (isPointInPolygon(testPoint, latLngs)) {
+          return testPoint
+        }
+      }
+    }
+    
+    return null
+  }
+
+  // Helper function to calculate distance from point to line segment
+  const pointToLineSegmentDistance = (point: [number, number], lineStart: [number, number], lineEnd: [number, number]) => {
+    const [px, py] = point
+    const [x1, y1] = lineStart
+    const [x2, y2] = lineEnd
+    
+    const A = px - x1
+    const B = py - y1
+    const C = x2 - x1
+    const D = y2 - y1
+    
+    const dot = A * C + B * D
+    const lenSq = C * C + D * D
+    
+    if (lenSq === 0) {
+      // Line segment is actually a point
+      return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1))
+    }
+    
+    let param = dot / lenSq
+    
+    let xx, yy
+    if (param < 0) {
+      xx = x1
+      yy = y1
+    } else if (param > 1) {
+      xx = x2
+      yy = y2
+    } else {
+      xx = x1 + param * C
+      yy = y1 + param * D
+    }
+    
+    const dx = px - xx
+    const dy = py - yy
+    
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  // Helper function to check if a label position is suitable (not too close to boundaries)
+  const isLabelPositionSuitable = (position: L.LatLng, polygon: L.Polygon, labelSize: number) => {
+    const latLngs = polygon.getLatLngs()[0] as L.LatLng[]
+    const point: [number, number] = [position.lat, position.lng]
+    
+    // Calculate minimum distance to any boundary edge
+    let minDistToBoundary = Infinity
+    for (let k = 0; k < latLngs.length; k++) {
+      const p1 = latLngs[k]
+      const p2 = latLngs[(k + 1) % latLngs.length]
+      
+      const dist = pointToLineSegmentDistance(point, [p1.lat, p1.lng], [p2.lat, p2.lng])
+      minDistToBoundary = Math.min(minDistToBoundary, dist)
+    }
+    
+    // Calculate the area of the polygon to adjust the required distance based on size
+    // For smaller polygons, we need to be more lenient
+    const bounds = polygon.getBounds()
+    const boundsArea = (bounds.getNorth() - bounds.getSouth()) * (bounds.getEast() - bounds.getWest())
+    
+    // Convert label size from pixels to degrees (approximate)
+    // Adjust based on the zoom level and polygon size
+    const labelSizeInDegrees = labelSize * 0.0001 * (1 / Math.sqrt(boundsArea) * 0.01)
+    
+    // For very small polygons, be more lenient
+    const minRequiredDistance = boundsArea < 0.0001 ? 
+      labelSizeInDegrees * 0.5 : // Very small polygons
+      labelSizeInDegrees * 1.5   // Normal polygons
+    
+    // Position is suitable if it's at least the required distance away from boundaries
+    return minDistToBoundary > minRequiredDistance
+  }
+
+  // Helper function to find an alternative label position if the primary one is not suitable
+  const findAlternativeLabelPosition = (polygon: L.Polygon, labelText: string, settings: SymbologySettings) => {
+    const bounds = polygon.getBounds()
+    const latLngs = polygon.getLatLngs()[0] as L.LatLng[]
+    const center = bounds.getCenter()
+    
+    // First try the pole of inaccessibility as it's often the best position
+    const polePoint = findPoleOfInaccessibility(latLngs)
+    if (polePoint && isPointInPolygon(polePoint, latLngs)) {
+      const poleLatLng = L.latLng(polePoint[0], polePoint[1])
+      if (isLabelPositionSuitable(poleLatLng, polygon, settings.labelSize || 10)) {
+        return poleLatLng
+      }
+    }
+    
+    // Try positions in a grid pattern, prioritizing areas with more space
+    const boundsWidth = Math.abs(bounds.getEast() - bounds.getWest())
+    const boundsHeight = Math.abs(bounds.getNorth() - bounds.getSouth())
+    
+    // Adjust grid density based on polygon size
+    // For smaller polygons, use a finer grid
+    const boundsArea = boundsWidth * boundsHeight
+    const gridDensity = boundsArea < 0.0001 ? 40 : 30 // Higher density for smaller polygons
+    const stepSize = Math.min(boundsWidth, boundsHeight) / gridDensity
+    
+    let bestPosition: L.LatLng | null = null
+    let bestScore = -1
+    
+    // Try a spiral search pattern from center outward
+    const maxRadius = Math.min(boundsWidth, boundsHeight) / 2
+    const angleStep = Math.PI / 12 // 24 directions per full circle
+    
+    for (let radius = 0; radius < maxRadius; radius += stepSize) {
+      for (let angle = 0; angle < 2 * Math.PI; angle += angleStep) {
+        const testLat = center.lat + radius * Math.cos(angle)
+        const testLng = center.lng + radius * Math.sin(angle)
+        const testPoint: [number, number] = [testLat, testLng]
+        
+        if (isPointInPolygon(testPoint, latLngs)) {
+          // Calculate distance to center (prefer positions closer to center)
+          const distanceToCenter = radius // We already know this from the spiral
+          
+          // Calculate minimum distance to boundary
+          let minDistToBoundary = Infinity
+          for (let k = 0; k < latLngs.length; k++) {
+            const p1 = latLngs[k]
+            const p2 = latLngs[(k + 1) % latLngs.length]
+            
+            const dist = pointToLineSegmentDistance(testPoint, [p1.lat, p1.lng], [p2.lat, p2.lng])
+            minDistToBoundary = Math.min(minDistToBoundary, dist)
+          }
+          
+          // Score based on distance to center and distance to boundary
+          const score = minDistToBoundary - distanceToCenter * 0.1
+          
+          if (score > bestScore) {
+            bestScore = score
+            bestPosition = L.latLng(testLat, testLng)
+          }
+        }
+      }
+    }
+    
+    return bestPosition
+  }
+
+  const renderBoundaryLayer = (data: any, settings: SymbologySettings, layerRef: L.LayerGroup | null, setLayerRef: (layer: L.LayerGroup | null) => void, boundaryType?: 'kota' | 'kecamatan' | 'kelurahan') => {
     if (!mapInstanceRef.current || !data) return
 
     // Remove existing layer if any
@@ -167,10 +540,29 @@ const MapComponent = ({
           opacity: settings.borderOpacity
         })
         
+        // Determine label text based on boundary type
+        let labelText = ''
+        let popupTitle = ''
+        
+        if (boundaryType === 'kota') {
+          labelText = feature.properties.WADMKK || 'Kota'
+          popupTitle = feature.properties.WADMKK || 'Kota'
+        } else if (boundaryType === 'kecamatan') {
+          labelText = feature.properties.WADMKC || 'Kecamatan'
+          popupTitle = feature.properties.WADMKC || 'Kecamatan'
+        } else if (boundaryType === 'kelurahan') {
+          labelText = feature.properties.WADMKD || 'Kelurahan'
+          popupTitle = feature.properties.WADMKD || 'Kelurahan'
+        } else {
+          // Fallback for unknown boundary type
+          labelText = feature.properties.WADMKK || feature.properties.WADMKC || feature.properties.WADMKD || feature.properties.name || 'Wilayah'
+          popupTitle = feature.properties.WADMKK || feature.properties.WADMKC || feature.properties.WADMKD || feature.properties.name || 'Wilayah'
+        }
+        
         // Add popup with boundary information
         const popupContent = `
           <div class="p-2">
-            <h3 class="font-semibold text-blue-600 mb-2">${feature.properties.WADMKK || feature.properties.name || 'Wilayah'}</h3>
+            <h3 class="font-semibold text-blue-600 mb-2">${popupTitle}</h3>
             <p class="text-sm mb-1"><strong>Provinsi:</strong> ${feature.properties.WADMPR || feature.properties.province || 'Jawa Tengah'}</p>
             <p class="text-sm mb-1"><strong>Luas:</strong> ${feature.properties.Shape_Area ? (feature.properties.Shape_Area * 100).toFixed(2) : 'N/A'} km²</p>
             <p class="text-sm mb-1"><strong>Panjang Batas:</strong> ${feature.properties.Shape_Leng ? (feature.properties.Shape_Leng * 100).toFixed(2) : 'N/A'} km</p>
@@ -180,8 +572,76 @@ const MapComponent = ({
         polygon.bindPopup(popupContent)
         
         newLayer.addLayer(polygon)
+
+        // Add label if enabled - Using improved label positioning
+          if (settings.showLabels && labelText) {
+            // Use the findBestLabelPosition function to get a better position
+            const bestPosition = findBestLabelPosition(polygon, labelText, settings)
+            
+            // Add a much smaller random offset to prevent labels from overlapping exactly
+            const offsetLat = (Math.random() - 0.5) * 0.0001 // Smaller offset
+            const offsetLng = (Math.random() - 0.5) * 0.0001
+            const adjustedPosition = L.latLng(bestPosition.lat + offsetLat, bestPosition.lng + offsetLng)
+          
+          const labelHtml = `
+            <div class="boundary-label" style="
+              color: ${settings.labelColor};
+              font-size: ${settings.labelSize}px;
+              font-weight: ${settings.labelBold ? 'bold' : 'normal'};
+              text-shadow: 1px 1px 2px rgba(255,255,255,0.8);
+              background: rgba(255, 255, 255, 0.8);
+              padding: 2px 6px;
+              border-radius: 3px;
+              box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+              border: none;
+              text-align: center;
+              white-space: nowrap;
+              pointer-events: none;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              transform: translate(-50%, -50%);
+              position: relative;
+              z-index: 1000;
+            ">
+              ${labelText}
+            </div>
+          `
+          const labelIcon = L.divIcon({
+            className: 'boundary-label-container',
+            html: labelHtml,
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
+          })
+          
+          const labelMarker = L.marker(adjustedPosition, { icon: labelIcon })
+          newLayer.addLayer(labelMarker)
+        }
       } else if (feature.geometry.type === 'MultiPolygon') {
         // Handle MultiPolygon geometry
+        // Determine label text based on boundary type first (only once per feature)
+        let labelText = ''
+        let popupTitle = ''
+        
+        if (boundaryType === 'kota') {
+          labelText = feature.properties.WADMKK || 'Kota'
+          popupTitle = feature.properties.WADMKK || 'Kota'
+        } else if (boundaryType === 'kecamatan') {
+          labelText = feature.properties.WADMKC || 'Kecamatan'
+          popupTitle = feature.properties.WADMKC || 'Kecamatan'
+        } else if (boundaryType === 'kelurahan') {
+          labelText = feature.properties.WADMKD || 'Kelurahan'
+          popupTitle = feature.properties.WADMKD || 'Kelurahan'
+        } else {
+          // Fallback for unknown boundary type
+          labelText = feature.properties.WADMKK || feature.properties.WADMKC || feature.properties.WADMKD || feature.properties.name || 'Wilayah'
+          popupTitle = feature.properties.WADMKK || feature.properties.WADMKC || feature.properties.WADMKD || feature.properties.name || 'Wilayah'
+        }
+        
+        // Create a FeatureGroup to hold all polygons for this MultiPolygon feature
+        const multiPolygonGroup = L.featureGroup()
+        
+        // Add all polygon parts to the group
         feature.geometry.coordinates.forEach((polygonCoords: number[][][]) => {
           polygonCoords.forEach((ring: number[][]) => {
             // Convert 3D coordinates to 2D and swap lat/lng
@@ -197,7 +657,7 @@ const MapComponent = ({
             // Add popup with boundary information
             const popupContent = `
               <div class="p-2">
-                <h3 class="font-semibold text-blue-600 mb-2">${feature.properties.WADMKK || feature.properties.name || 'Wilayah'}</h3>
+                <h3 class="font-semibold text-blue-600 mb-2">${popupTitle}</h3>
                 <p class="text-sm mb-1"><strong>Provinsi:</strong> ${feature.properties.WADMPR || feature.properties.province || 'Jawa Tengah'}</p>
                 <p class="text-sm mb-1"><strong>Luas:</strong> ${feature.properties.Shape_Area ? (feature.properties.Shape_Area * 100).toFixed(2) : 'N/A'} km²</p>
                 <p class="text-sm mb-1"><strong>Panjang Batas:</strong> ${feature.properties.Shape_Leng ? (feature.properties.Shape_Leng * 100).toFixed(2) : 'N/A'} km</p>
@@ -206,9 +666,83 @@ const MapComponent = ({
             `
             polygon.bindPopup(popupContent)
             
-            newLayer.addLayer(polygon)
+            // Add polygon to the group
+            multiPolygonGroup.addLayer(polygon)
           })
         })
+        
+        // Add the entire group to the main layer
+        newLayer.addLayer(multiPolygonGroup)
+        
+        // Add only ONE label for the entire MultiPolygon feature
+        if (settings.showLabels && labelText) {
+          // Get bounds of the entire MultiPolygon group
+          const bounds = multiPolygonGroup.getBounds()
+          const center = bounds.getCenter()
+          
+          // Find the largest polygon in the MultiPolygon to use for label positioning
+          let largestPolygon: L.Polygon | null = null
+          let maxArea = 0
+          
+          multiPolygonGroup.eachLayer((layer: any) => {
+            if (layer instanceof L.Polygon) {
+              const layerBounds = layer.getBounds()
+              const area = (layerBounds.getNorth() - layerBounds.getSouth()) * (layerBounds.getEast() - layerBounds.getWest())
+              if (area > maxArea) {
+                maxArea = area
+                largestPolygon = layer
+              }
+            }
+          })
+          
+          // Use the largest polygon for finding the best label position
+          let bestPosition = center
+          if (largestPolygon) {
+            const betterPosition = findBestLabelPosition(largestPolygon, labelText, settings)
+            if (betterPosition) {
+              bestPosition = betterPosition
+            }
+          }
+          
+          // Add a much smaller random offset to prevent labels from overlapping exactly
+          const offsetLat = (Math.random() - 0.5) * 0.0001 // Smaller offset
+          const offsetLng = (Math.random() - 0.5) * 0.0001
+          const adjustedPosition = L.latLng(bestPosition.lat + offsetLat, bestPosition.lng + offsetLng)
+          
+          const labelHtml = `
+            <div class="boundary-label" style="
+              color: ${settings.labelColor};
+              font-size: ${settings.labelSize}px;
+              font-weight: ${settings.labelBold ? 'bold' : 'normal'};
+              text-shadow: 1px 1px 2px rgba(255,255,255,0.8);
+              background: rgba(255, 255, 255, 0.8);
+              padding: 2px 6px;
+              border-radius: 3px;
+              box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+              border: none;
+              text-align: center;
+              white-space: nowrap;
+              pointer-events: none;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              transform: translate(-50%, -50%);
+              position: relative;
+              z-index: 1000;
+            ">
+              ${labelText}
+            </div>
+          `
+          const labelIcon = L.divIcon({
+            className: 'boundary-label-container',
+            html: labelHtml,
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
+          })
+          
+          const labelMarker = L.marker(adjustedPosition, { icon: labelIcon })
+          newLayer.addLayer(labelMarker)
+        }
       }
     })
     
@@ -255,8 +789,7 @@ const MapComponent = ({
         kendaraan: accident.kendaraan,
         korban: accident.korban,
         deskripsi: accident.deskripsi,
-        type: accident.jenis === "Fatal" ? "fatal" : 
-              accident.jenis === "Luka-luka" ? "injury" : "damage",
+        type: accident.jenis === "Fatal" ? "fatal" : (accident.jenis === "Luka-luka" ? "injury" : "damage"),
         date: accident.tanggal,
         description: accident.deskripsi,
         vehicles: accident.kendaraan.split(", "),
@@ -429,7 +962,6 @@ const MapComponent = ({
         } else {
           y = y - 20 // Show above cursor
         }
-        
         setContextMenu({
           visible: true,
           x: x,
@@ -462,7 +994,7 @@ const MapComponent = ({
   useEffect(() => {
     loadBoundaryData('/geojson/surakarta-boundary.geojson', setBoundaryKotaData)
     loadBoundaryData('/geojson/Kecamatan_Solo.geojson', setBoundaryKecamatanData)
-    loadBoundaryData('/geojson/Desa_Solo.geojson', setBoundaryDesaData)
+    loadBoundaryData('/geojson/Desa_Solo.geojson', setBoundaryKelurahanData)
   }, [])
 
   // Default symbology settings
@@ -472,7 +1004,11 @@ const MapComponent = ({
     borderWidth: 2,
     fillOpacity: 0.3,
     borderOpacity: 0.8,
-    hollow: false
+    hollow: false,
+    showLabels: true,
+    labelColor: '#3b82f6',
+    labelSize: 12,
+    labelBold: false
   }
 
   const defaultKecamatanSettings: SymbologySettings = {
@@ -481,23 +1017,31 @@ const MapComponent = ({
     borderWidth: 2,
     fillOpacity: 0.3,
     borderOpacity: 0.8,
-    hollow: false
+    hollow: false,
+    showLabels: true,
+    labelColor: '#16a34a',
+    labelSize: 10,
+    labelBold: false
   }
 
-  const defaultDesaSettings: SymbologySettings = {
+  const defaultKelurahanSettings: SymbologySettings = {
     fillColor: '#ca8a04',
     borderColor: '#ca8a04',
     borderWidth: 2,
     fillOpacity: 0.3,
     borderOpacity: 0.8,
-    hollow: false
+    hollow: false,
+    showLabels: true,
+    labelColor: '#ca8a04',
+    labelSize: 9,
+    labelBold: false
   }
 
   // Handle boundary layer visibility changes
   useEffect(() => {
     if (showBoundaryKota && boundaryKotaData && mapInstanceRef.current) {
       const settings = boundaryKotaSettings || defaultKotaSettings
-      renderBoundaryLayer(boundaryKotaData, settings, boundaryKotaLayer, setBoundaryKotaLayer)
+              renderBoundaryLayer(boundaryKotaData, settings, boundaryKotaLayer, setBoundaryKotaLayer, 'kota')
     } else if (!showBoundaryKota && boundaryKotaLayer && mapInstanceRef.current) {
       mapInstanceRef.current.removeLayer(boundaryKotaLayer)
       setBoundaryKotaLayer(null)
@@ -508,23 +1052,23 @@ const MapComponent = ({
   useEffect(() => {
     if (showBoundaryKecamatan && boundaryKecamatanData && mapInstanceRef.current) {
       const settings = boundaryKecamatanSettings || defaultKecamatanSettings
-      renderBoundaryLayer(boundaryKecamatanData, settings, boundaryKecamatanLayer, setBoundaryKecamatanLayer)
+              renderBoundaryLayer(boundaryKecamatanData, settings, boundaryKecamatanLayer, setBoundaryKecamatanLayer, 'kecamatan')
     } else if (!showBoundaryKecamatan && boundaryKecamatanLayer && mapInstanceRef.current) {
       mapInstanceRef.current.removeLayer(boundaryKecamatanLayer)
       setBoundaryKecamatanLayer(null)
     }
   }, [showBoundaryKecamatan, boundaryKecamatanData, boundaryKecamatanSettings])
 
-  // Handle desa boundary layer visibility changes
+  // Handle kelurahan boundary layer visibility changes
   useEffect(() => {
-    if (showBoundaryDesa && boundaryDesaData && mapInstanceRef.current) {
-      const settings = boundaryDesaSettings || defaultDesaSettings
-      renderBoundaryLayer(boundaryDesaData, settings, boundaryDesaLayer, setBoundaryDesaLayer)
-    } else if (!showBoundaryDesa && boundaryDesaLayer && mapInstanceRef.current) {
-      mapInstanceRef.current.removeLayer(boundaryDesaLayer)
-      setBoundaryDesaLayer(null)
+    if (showBoundaryKelurahan && boundaryKelurahanData && mapInstanceRef.current) {
+      const settings = boundaryKelurahanSettings || defaultKelurahanSettings
+              renderBoundaryLayer(boundaryKelurahanData, settings, boundaryKelurahanLayer, setBoundaryKelurahanLayer, 'kelurahan')
+    } else if (!showBoundaryKelurahan && boundaryKelurahanLayer && mapInstanceRef.current) {
+      mapInstanceRef.current.removeLayer(boundaryKelurahanLayer)
+      setBoundaryKelurahanLayer(null)
     }
-  }, [showBoundaryDesa, boundaryDesaData, boundaryDesaSettings])
+  }, [showBoundaryKelurahan, boundaryKelurahanData, boundaryKelurahanSettings])
 
   // Handle base map changes without recreating the map
   useEffect(() => {
@@ -593,8 +1137,7 @@ const MapComponent = ({
       case "accidents":
         // Use jenis field from admin data, fallback to type field
         const jenis = properties.jenis || properties.type
-        color = jenis === "Fatal" || jenis === "fatal" ? "#ef4444" : 
-                jenis === "Luka-luka" || jenis === "injury" ? "#f97316" : "#eab308"
+        color = jenis === "Fatal" || jenis === "fatal" ? "#ef4444" : (jenis === "Luka-luka" || jenis === "injury" ? "#f97316" : "#eab308")
         icon = L.divIcon({
           className: "custom-div-icon",
           html: `<div style="background-color: ${color}; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.3);"></div>`,
@@ -929,12 +1472,12 @@ const MapComponent = ({
           boundarySettings={{
             kota: boundaryKotaSettings || defaultKotaSettings,
             kecamatan: boundaryKecamatanSettings || defaultKecamatanSettings,
-            desa: boundaryDesaSettings || defaultDesaSettings
+            kelurahan: boundaryKelurahanSettings || defaultKelurahanSettings
           }}
           boundaryVisibility={{
             kota: showBoundaryKota,
             kecamatan: showBoundaryKecamatan,
-            desa: showBoundaryDesa
+            kelurahan: showBoundaryKelurahan
           }}
           onSettingsChange={(type, settings) => onBoundarySettingsChange?.(type, settings)}
           onVisibilityChange={(type, visible) => {
@@ -986,17 +1529,13 @@ const MapComponent = ({
                     Zoom: {currentZoom}x
                   </div>
                   <div className="text-xs text-gray-400">
-                    {currentZoom >= 18 ? "Detail Tinggi" : 
-                     currentZoom >= 15 ? "Detail Menengah" : 
-                     currentZoom >= 12 ? "Detail Rendah" : "Area Luas"}
+                    {currentZoom >= 18 ? "Detail Tinggi" : (currentZoom >= 15 ? "Detail Menengah" : (currentZoom >= 12 ? "Detail Rendah" : "Area Luas"))}
                   </div>
                   <div className="text-xs text-gray-400 mt-1">
                     Max: {baseMaps[selectedBaseMap as keyof typeof baseMaps]?.maxZoom || 22}x
                   </div>
                   <div className="text-xs text-gray-400">
-                    {selectedBaseMap === 'osm' ? 'OSM' : 
-                     selectedBaseMap === 'satellite' ? 'Satellite' : 
-                     selectedBaseMap === 'streets' ? 'Google Streets' : 'OSM'}
+                    {selectedBaseMap === 'osm' ? 'OSM' : (selectedBaseMap === 'satellite' ? 'Satellite' : (selectedBaseMap === 'streets' ? 'Google Streets' : 'OSM'))}
                   </div>
                 </div>
               </>
@@ -1396,18 +1935,18 @@ const MapComponent = ({
            </Card>
          )}
 
-         {/* Desa Boundary Legend */}
-         {showBoundaryDesa && (
+         {/* Kelurahan Boundary Legend */}
+         {showBoundaryKelurahan && (
            <Card className="bg-white/90 backdrop-blur-sm shadow-lg flex-shrink-0">
              <CardContent className="p-1.5">
                <h4 className="font-semibold text-yellow-700 mb-1 text-xs flex items-center">
                  <MapPin className="w-3 h-3 mr-1 text-yellow-600" />
-                 Batas Desa
+                 Batas Kelurahan
                </h4>
                <div className="space-y-0.5 text-xs">
                  <div className="flex items-center space-x-1.5">
                    <div className="w-2.5 h-2.5 bg-yellow-600 rounded-sm"></div>
-                   <span>🟡 Batas Desa</span>
+                   <span>🟡 Batas Kelurahan</span>
                  </div>
                </div>
              </CardContent>
